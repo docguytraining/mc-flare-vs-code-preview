@@ -41,6 +41,11 @@
         "command": "flare.previewHtml",
         "title": "Flare: Preview HTML Topic",
         "category": "Flare"
+      },
+      {
+        "command": "flare.insertXref",
+        "title": "Flare: Insert Cross-Reference",
+        "category": "Flare"
       }
     ],
     "menus": {
@@ -49,6 +54,13 @@
           "command": "flare.previewHtml",
           "when": "resourceExtname == .htm || resourceExtname == .html",
           "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "flare.insertXref",
+          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "group": "1_modification"
         }
       ],
       "explorer/context": [
@@ -72,6 +84,27 @@
           "default": 800,
           "minimum": 300,
           "description": "Debounce delay used for typing-driven preview refresh."
+        },
+        "flarePreview.inlayHints.variables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the resolved value of each Flare variable reference as an inline hint in the editor."
+        },
+        "flarePreview.suggestVariableReplacements": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suggest replacing literal text that matches a Flare variable value with a <MadCap:variable> reference."
+        },
+        "flarePreview.variableReplacementMinLength": {
+          "type": "number",
+          "default": 4,
+          "minimum": 2,
+          "description": "Minimum length of a variable value before it is used for literal-match suggestions. Lower values produce more noise on short words."
+        },
+        "flarePreview.validateLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics."
         }
       }
     }

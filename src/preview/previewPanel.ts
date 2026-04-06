@@ -47,6 +47,47 @@ export class FlarePreviewPanel {
       this.coordinator.dispose();
       FlarePreviewPanel.currentPanel = undefined;
     });
+
+    this.panel.webview.onDidReceiveMessage((message) => {
+      if (message?.command === "openTopic" && typeof message.href === "string") {
+        void this.handleOpenTopic(message.href);
+      }
+    });
+  }
+
+  private async handleOpenTopic(href: string): Promise<void> {
+    const baseUri = this.currentDocumentUri;
+    if (!baseUri) {
+      return;
+    }
+    const [pathPart, anchorPart] = splitHash(href);
+    if (!pathPart && !anchorPart) {
+      return;
+    }
+
+    const documentDir = path.dirname(baseUri.fsPath);
+    const candidate = pathPart.length > 0 ? path.resolve(documentDir, pathPart) : baseUri.fsPath;
+
+    // Only open files that live inside the current workspace folder, so a
+    // crafted postMessage can't reach files outside the project tree.
+    const owningFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(candidate));
+    if (!owningFolder) {
+      logWarning(`Refusing to open xref target outside workspace: ${candidate}`);
+      return;
+    }
+
+    try {
+      const targetDocument = await vscode.workspace.openTextDocument(candidate);
+      const editor = await vscode.window.showTextDocument(targetDocument, {
+        viewColumn: vscode.ViewColumn.One,
+        preview: false
+      });
+      if (anchorPart) {
+        revealAnchor(editor, anchorPart);
+      }
+    } catch (error) {
+      logWarning(`Failed to open xref target ${candidate}: ${String(error)}`);
+    }
   }
 
   public static show(
@@ -194,7 +235,25 @@ export class FlarePreviewPanel {
         <article class="topic-frame">${rewrittenTopicHtml}</article>
       </section>
     </main>
-    <script nonce="${nonce}">/* reserved for future preview interactivity */</script>
+    <script nonce="${nonce}">
+      (function () {
+        const vscode = acquireVsCodeApi();
+        document.addEventListener("click", function (event) {
+          const anchor = event.target instanceof Element
+            ? event.target.closest("a.flare-xref")
+            : null;
+          if (!anchor) {
+            return;
+          }
+          const href = anchor.getAttribute("data-flare-xref");
+          if (!href) {
+            return;
+          }
+          event.preventDefault();
+          vscode.postMessage({ command: "openTopic", href: href });
+        });
+      })();
+    </script>
   </body>
 </html>`;
   }
@@ -338,6 +397,32 @@ function isExternalOrDataUrl(value: string): boolean {
 
 function isAnchorOrFragment(value: string): boolean {
   return value.startsWith("#") || value.startsWith("javascript:");
+}
+
+function splitHash(href: string): [string, string | undefined] {
+  const trimmed = href.trim();
+  const index = trimmed.indexOf("#");
+  if (index < 0) {
+    return [trimmed, undefined];
+  }
+  return [trimmed.slice(0, index), trimmed.slice(index + 1)];
+}
+
+function revealAnchor(editor: vscode.TextEditor, anchor: string): void {
+  const text = editor.document.getText();
+  const escaped = anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const anchorRegex = new RegExp(
+    `(?:id|name)\\s*=\\s*["']${escaped}["']|<MadCap:anchor\\b[^>]*\\bname\\s*=\\s*["']${escaped}["']`,
+    "i"
+  );
+  const match = anchorRegex.exec(text);
+  if (!match) {
+    return;
+  }
+  const position = editor.document.positionAt(match.index);
+  const range = new vscode.Range(position, position);
+  editor.selection = new vscode.Selection(range.start, range.end);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 }
 
 function createNonce(): string {

@@ -4,7 +4,14 @@ import { FlarePreviewPanel } from "./preview/previewPanel";
 import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
+import { TopicIndex } from "./flare/topicIndex";
 import { disposeLogger, logError, logInfo } from "./core/logger";
+import { VariableInlayHintsProvider } from "./language/variableInlayHintsProvider";
+import { VariableCompletionProvider } from "./language/variableCompletionProvider";
+import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
+import { XrefCompletionProvider } from "./language/xrefCompletionProvider";
+import { LinkValidator } from "./diagnostics/linkValidator";
+import { registerInsertXrefCommand } from "./commands/insertXrefCommand";
 import {
   DiagnosticEntry,
   FlareProjectContext,
@@ -16,10 +23,50 @@ import {
 
 const FLARE_PREVIEW_COMMAND = "flare.previewHtml";
 const FLARE_FILE_EXTENSIONS = new Set([".htm", ".html"]);
+const HTML_DOCUMENT_SELECTOR: vscode.DocumentSelector = [
+  { language: "html", scheme: "file" },
+  { pattern: "**/*.{htm,html}", scheme: "file" }
+];
+const AUTHORING_DEBOUNCE_MS = 400;
 
 export function activate(context: vscode.ExtensionContext): void {
   logInfo("MadCap Flare Preview extension activated.");
   const projectResolver = new FlareProjectResolver();
+  const topicIndex = new TopicIndex();
+  const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
+  const linkDiagnostics = vscode.languages.createDiagnosticCollection("flare-links");
+  const suggestionEngine = new VariableSuggestionEngine(suggestionDiagnostics, projectResolver);
+  const linkValidator = new LinkValidator(linkDiagnostics, projectResolver);
+  const authoringTimers = new Map<string, NodeJS.Timeout>();
+
+  const scheduleAuthoringValidation = (document: vscode.TextDocument): void => {
+    if (!isFlareHtmlDocument(document)) {
+      return;
+    }
+    const key = document.uri.toString();
+    const existing = authoringTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = setTimeout(() => {
+      authoringTimers.delete(key);
+      void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
+      void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+    }, AUTHORING_DEBOUNCE_MS);
+    authoringTimers.set(key, timer);
+  };
+
+  const runAuthoringValidationImmediately = (document: vscode.TextDocument): void => {
+    if (!isFlareHtmlDocument(document)) {
+      return;
+    }
+    void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
+    void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+  };
+
+  for (const document of vscode.workspace.textDocuments) {
+    runAuthoringValidationImmediately(document);
+  }
 
   const buildPreviewData = async (
     document: vscode.TextDocument
@@ -193,7 +240,73 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     FlarePreviewPanel.scheduleTypingRefresh(document.uri, buildPreviewData);
+    scheduleAuthoringValidation(document);
   });
+
+  const onDidOpen = vscode.workspace.onDidOpenTextDocument((document) => {
+    runAuthoringValidationImmediately(document);
+  });
+
+  const onDidClose = vscode.workspace.onDidCloseTextDocument((document) => {
+    suggestionEngine.clear(document.uri);
+    linkValidator.clear(document.uri);
+    const key = document.uri.toString();
+    const timer = authoringTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      authoringTimers.delete(key);
+    }
+  });
+
+  const onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (
+      event.affectsConfiguration("flarePreview.suggestVariableReplacements") ||
+      event.affectsConfiguration("flarePreview.variableReplacementMinLength") ||
+      event.affectsConfiguration("flarePreview.validateLinks")
+    ) {
+      for (const document of vscode.workspace.textDocuments) {
+        runAuthoringValidationImmediately(document);
+      }
+    }
+  });
+
+  const topicWatcher = vscode.workspace.createFileSystemWatcher("**/*.{htm,html}");
+  const onTopicChanged = (uri: vscode.Uri): void => {
+    topicIndex.invalidateForPath(uri.fsPath);
+  };
+  const onTopicCreated = topicWatcher.onDidCreate(onTopicChanged);
+  const onTopicEdited = topicWatcher.onDidChange(onTopicChanged);
+  const onTopicDeleted = topicWatcher.onDidDelete(onTopicChanged);
+
+  const inlayHintsRegistration = vscode.languages.registerInlayHintsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new VariableInlayHintsProvider(projectResolver)
+  );
+
+  const variableCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new VariableCompletionProvider(projectResolver),
+    "$",
+    '"',
+    "'"
+  );
+
+  const xrefCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new XrefCompletionProvider(projectResolver, topicIndex),
+    '"',
+    "'",
+    "#",
+    "/"
+  );
+
+  const codeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    suggestionEngine,
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
+  );
+
+  const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
 
   const onDidCreate = dependencyWatcher.onDidCreate(onDependencyChanged);
   const onDidChange = dependencyWatcher.onDidChange(onDependencyChanged);
@@ -206,7 +319,29 @@ export function activate(context: vscode.ExtensionContext): void {
     onDidChange,
     onDidDelete,
     onDidSave,
-    onDidChangeText
+    onDidChangeText,
+    onDidOpen,
+    onDidClose,
+    onDidChangeConfiguration,
+    topicWatcher,
+    onTopicCreated,
+    onTopicEdited,
+    onTopicDeleted,
+    inlayHintsRegistration,
+    variableCompletionRegistration,
+    xrefCompletionRegistration,
+    codeActionRegistration,
+    insertXrefRegistration,
+    suggestionDiagnostics,
+    linkDiagnostics,
+    {
+      dispose: () => {
+        for (const timer of authoringTimers.values()) {
+          clearTimeout(timer);
+        }
+        authoringTimers.clear();
+      }
+    }
   );
 }
 

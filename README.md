@@ -7,16 +7,19 @@ Preview MadCap Flare topic files (`.htm` / `.html`) inside VS Code with Flare-aw
 - **Flare project discovery** — walks upward from the active topic to locate the nearest `.flprj` and caches the result per project root.
 - **Variable resolution** — parses every `.flvar` referenced by the project and substitutes `<MadCap:variable>` and `${token}` references, with a diagnostic for every unresolved name.
 - **Stylesheet aggregation** — collects topic-linked stylesheets, project-level stylesheets, and resolves `@import`/relative asset URLs in a deterministic order.
-- **MadCap transform pipeline** — ordered handlers for variables, conditional blocks, drop-down/expandable regions, and snippet includes, with fallback markers for unsupported tags.
-- **Webview preview** — strict Content Security Policy, nonced scripts, workspace-scoped `localResourceRoots`, webview URI rewriting for local `img`/`href` targets, and an HTML/CSS sanitizer that strips scripts, inline styles, event handlers, and external resource references.
+- **MadCap transform pipeline** — ordered handlers for variables, conditional blocks, drop-down/expandable regions, snippet includes, and cross-references, with fallback markers for unsupported tags.
+- **Webview preview** — strict Content Security Policy, nonced scripts, workspace-scoped `localResourceRoots`, webview URI rewriting for local `img`/`href` targets, and an HTML/CSS sanitizer that strips scripts, inline styles, event handlers, and external resource references. Clicking a rendered `<MadCap:xref>` opens the target topic in the editor.
 - **Refresh engine** — immediate refresh on save or dependency change, 800 ms debounced typing refresh (configurable), single-in-flight renders with stale cancellation, and a 10 s coalescing safeguard so rapid edits never starve the preview.
-- **Structured diagnostics** — every warning carries a code, severity, and actionable hint and is surfaced both in the preview panel and in the `MadCap Flare Preview` output channel.
+- **Authoring assistance** — variable inlay hints that show resolved values inline, completion for `<MadCap:variable>` and `${…}` references, completion for `<MadCap:xref>`/`<a>` `href` attributes with topic search and bookmark suggestions, a literal-to-variable "did you mean a variable?" quick fix, and an `Insert Cross-Reference` command that lists project topics by their first `<h1>` and walks you through picking a bookmark.
+- **Link validation** — every Flare topic is scanned for broken local references (`<MadCap:xref>`, `<a>`, `<img>`, `<link rel="stylesheet">`, `<MadCap:snippet>`), missing anchors, and case-sensitivity drift; results appear in the Problems panel.
+- **Structured diagnostics** — every preview warning carries a code, severity, and actionable hint and is surfaced both in the preview panel and in the `MadCap Flare Preview` output channel.
 
 ## Commands
 
 | Command ID | Title | Entry points |
 | --- | --- | --- |
 | `flare.previewHtml` | `Flare: Preview HTML Topic` | Command palette, editor title bar (`.htm`/`.html`), Explorer context menu |
+| `flare.insertXref` | `Flare: Insert Cross-Reference` | Command palette, editor context menu (`.htm`/`.html`) |
 
 ## Configuration
 
@@ -24,6 +27,10 @@ Preview MadCap Flare topic files (`.htm` / `.html`) inside VS Code with Flare-aw
 | --- | --- | --- | --- |
 | `flarePreview.autoRefreshOnSave` | `boolean` | `true` | Refresh the preview after saving an HTML topic or a dependency file (`.flprj`, `.flvar`, `.css`). |
 | `flarePreview.typingDebounceMs` | `number` | `800` | Debounce delay for typing-driven preview refresh. Minimum 300 ms. |
+| `flarePreview.inlayHints.variables` | `boolean` | `true` | Show the resolved value of each Flare variable reference as an inline hint in the editor. |
+| `flarePreview.suggestVariableReplacements` | `boolean` | `true` | Suggest replacing literal text that matches a Flare variable value with a `<MadCap:variable>` reference. |
+| `flarePreview.variableReplacementMinLength` | `number` | `4` | Minimum length of a variable value before it is used for literal-match suggestions. |
+| `flarePreview.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
 
 ## Supported MadCap tags
 
@@ -33,6 +40,7 @@ Preview MadCap Flare topic files (`.htm` / `.html`) inside VS Code with Flare-aw
 | `<MadCap:conditionalBlock>` | Supported (baseline) | Condition values of `false`, `0`, `none`, `exclude`, or `hide` suppress the block; everything else renders. Full include/exclude expression evaluation is not yet implemented. |
 | `<MadCap:dropDown>` / `<MadCap:expandableArea>` | Supported | Converted to native `<details>`/`<summary>` using the hotspot text or the `title` attribute as the summary. |
 | `<MadCap:snippet>` / `<MadCap:snippetBlock>` | Supported | Resolved relative to the topic first, then the project root. Missing snippets render an inline warning marker. |
+| `<MadCap:xref>` | Supported | Rendered as a clickable link in the preview that opens the target topic (and optional anchor) in the editor. Also completes topic paths and bookmarks while typing `href="…"`. |
 | Unsupported MadCap tags | Placeholder | Unknown tags render as `[Unsupported MadCap:tagName]` markers and emit a structured warning instead of breaking the preview. |
 
 ### Known limitations
@@ -96,7 +104,7 @@ Open the project in VS Code and press `F5` to launch an Extension Development Ho
 
 ## Roadmap
 
-Phase-by-phase status lives in [`.project-plan.md`](.project-plan.md). Phases 1–6 (scaffold, discovery, transforms, preview interaction, security/diagnostics, validation and publish readiness) are complete.
+Phase-by-phase status lives in [`.project-plan.md`](.project-plan.md). Phases 1–7 (scaffold, discovery, transforms, preview interaction, security/diagnostics, validation/publish readiness, authoring assistance) are complete.
 
 ## License
 

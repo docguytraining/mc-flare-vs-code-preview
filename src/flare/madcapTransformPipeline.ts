@@ -30,6 +30,8 @@ const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/
 const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
 const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/gi;
 const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
+const XREF_SELF_CLOSING_REGEX = /<MadCap:xref\b([^>]*)\/>/gi;
+const XREF_BLOCK_REGEX = /<MadCap:xref\b([^>]*)>([\s\S]*?)<\/MadCap:xref>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -60,6 +62,13 @@ const snippetTransformHandler: TransformHandler = {
   }
 };
 
+const xrefTransformHandler: TransformHandler = {
+  id: "xrefs",
+  run(htmlContent) {
+    return replaceXrefs(htmlContent);
+  }
+};
+
 const unsupportedTagTransformHandler: TransformHandler = {
   id: "unsupported-markers",
   run(htmlContent, _transformContext, handlerContext) {
@@ -72,6 +81,7 @@ const REGISTERED_HANDLERS: TransformHandler[] = [
   conditionalTransformHandler,
   dropDownTransformHandler,
   snippetTransformHandler,
+  xrefTransformHandler,
   unsupportedTagTransformHandler
 ];
 
@@ -175,6 +185,26 @@ async function replaceSnippets(
   );
 
   return transformed;
+}
+
+function replaceXrefs(htmlContent: string): string {
+  let transformed = htmlContent.replace(XREF_BLOCK_REGEX, (_full, attributes: string, body: string) => {
+    const href = readAttribute(attributes, ["href"]) ?? "";
+    const text = stripTags(body).trim() || href || "cross-reference";
+    return renderXrefAnchor(href, text);
+  });
+
+  transformed = transformed.replace(XREF_SELF_CLOSING_REGEX, (_full, attributes: string) => {
+    const href = readAttribute(attributes, ["href"]) ?? "";
+    return renderXrefAnchor(href, href || "cross-reference");
+  });
+
+  return transformed;
+}
+
+function renderXrefAnchor(href: string, text: string): string {
+  const encodedHref = escapeHtml(href);
+  return `<a class="flare-xref" data-flare-xref="${encodedHref}" href="#">${escapeHtml(text)}</a>`;
 }
 
 function replaceUnsupportedTags(htmlContent: string, warnings: string[]): string {
