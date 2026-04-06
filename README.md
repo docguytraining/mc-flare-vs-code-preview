@@ -8,7 +8,7 @@ The goal is to render elements that standard HTML previewers skip because they a
 
 This repository is in active development.
 
-Phase 3 core checklist is complete.
+Phase 4 core checklist is complete.
 
 Implemented so far:
 - TypeScript VS Code extension scaffold
@@ -21,8 +21,11 @@ Implemented so far:
 - Stylesheet discovery from topic and project sources with `@import` expansion
 - MadCap transform pipeline for variables, conditional blocks, drop-down/expandable regions, and snippets
 - Unsupported MadCap tag markers and transform warnings in preview
+- Render coordinator with save/dependency refresh, debounced typing refresh, single-in-flight renders, and 10 s coalescing safeguard
+- Local resource rewriting through webview URIs and baseline CSP with nonced script policy
+- Preview status bar showing last render time, project path, and warning count
 
-Next focus areas are Phase 4 preview interaction refinements and broader real-project validation.
+Next focus areas are Phase 5 security hardening (HTML sanitization, strict CSP, structured diagnostics) and Phase 6 validation.
 
 ## Planned Capability
 

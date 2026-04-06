@@ -67,3 +67,26 @@ summary {
 .ok {
   color: var(--vscode-testing-iconPassed);
 }
+
+.status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.status-bar li {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-button-background) 8%);
+}
+
+.status-bar .warn {
+  color: var(--vscode-editorWarning-foreground);
+  border-color: var(--vscode-editorWarning-foreground);
+}

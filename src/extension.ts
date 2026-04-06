@@ -88,12 +88,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const dependencyWatcher = vscode.workspace.createFileSystemWatcher("**/*.{flprj,flvar,css}");
 
-  const onDependencyChanged = async (uri: vscode.Uri): Promise<void> => {
+  const onDependencyChanged = (uri: vscode.Uri): void => {
     projectResolver.invalidateForPath(uri.fsPath);
-    await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+    FlarePreviewPanel.refreshCurrent(buildPreviewData);
   };
 
-  const onDidSave = vscode.workspace.onDidSaveTextDocument(async (document) => {
+  const onDidSave = vscode.workspace.onDidSaveTextDocument((document) => {
     const autoRefresh = vscode.workspace
       .getConfiguration("flarePreview")
       .get<boolean>("autoRefreshOnSave", true);
@@ -104,13 +104,21 @@ export function activate(context: vscode.ExtensionContext): void {
     const lowerPath = document.uri.fsPath.toLowerCase();
     if (lowerPath.endsWith(".flprj") || lowerPath.endsWith(".flvar") || lowerPath.endsWith(".css")) {
       projectResolver.invalidateForPath(document.uri.fsPath);
-      await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+      FlarePreviewPanel.refreshCurrent(buildPreviewData);
       return;
     }
 
     if (isFlareHtmlDocument(document)) {
-      await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+      FlarePreviewPanel.refreshCurrent(buildPreviewData);
     }
+  });
+
+  const onDidChangeText = vscode.workspace.onDidChangeTextDocument((event) => {
+    const document = event.document;
+    if (!isFlareHtmlDocument(document)) {
+      return;
+    }
+    FlarePreviewPanel.scheduleTypingRefresh(document.uri, buildPreviewData);
   });
 
   const onDidCreate = dependencyWatcher.onDidCreate(onDependencyChanged);
@@ -123,7 +131,8 @@ export function activate(context: vscode.ExtensionContext): void {
     onDidCreate,
     onDidChange,
     onDidDelete,
-    onDidSave
+    onDidSave,
+    onDidChangeText
   );
 }
 
