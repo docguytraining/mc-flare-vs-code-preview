@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+*.vsix
+.DS_Store
+.vscode-test/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

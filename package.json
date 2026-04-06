@@ -1,0 +1,84 @@
+{
+  "name": "mc-flare-vs-code-preview",
+  "displayName": "MadCap Flare Preview",
+  "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering.",
+  "version": "0.0.1",
+  "publisher": "paulpehrson",
+  "private": true,
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "madcap",
+    "flare",
+    "html",
+    "preview",
+    "documentation"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flare.previewHtml",
+        "title": "Flare: Preview HTML Topic",
+        "category": "Flare"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "flare.previewHtml",
+          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "flare.previewHtml",
+          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MadCap Flare Preview",
+      "properties": {
+        "flarePreview.autoRefreshOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh the preview after saving an HTML topic."
+        },
+        "flarePreview.typingDebounceMs": {
+          "type": "number",
+          "default": 800,
+          "minimum": 300,
+          "description": "Debounce delay used for typing-driven preview refresh."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext .ts",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.8",
+    "@types/node": "^20.17.6",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^8.12.2",
+    "@typescript-eslint/parser": "^8.12.2",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.14.0",
+    "glob": "^11.0.1",
+    "mocha": "^10.8.2",
+    "typescript": "^5.6.3",
+    "@vscode/vsce": "^3.2.1"
+  }
+}
