@@ -117,6 +117,68 @@ suite("VariableSuggestionEngine - sidecar dismissals + case sensitivity", () => 
     }
   });
 
+  test("project-wide ignore list suppresses both qualified and bare map entries (regression: Test 9)", async () => {
+    const scratchPath = path.join(FIXTURE_ROOT, "Content", "Topics", "__scratch-projectwide.htm");
+    await fs.writeFile(
+      scratchPath,
+      [
+        "<html>",
+        "  <body>",
+        "    <p>Published by ACME Docs.</p>",
+        "  </body>",
+        "</html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const collection = vscode.languages.createDiagnosticCollection("flare-projectwide-test");
+    const config = vscode.workspace.getConfiguration("flarePreview");
+    const originalIgnore = config.get<string[]>("suggestionIgnoreVariables", []) ?? [];
+    try {
+      const engine = new VariableSuggestionEngine(
+        collection,
+        new FlareProjectResolver(),
+        new DismissalStore()
+      );
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
+
+      // Baseline: ACME Docs should match the Vendor variable.
+      await engine.refresh(document);
+      const before = collection.get(document.uri) ?? [];
+      assert.ok(
+        before.some((diagnostic) => diagnostic.code === VariableSuggestionEngine.diagnosticCode),
+        "expected a suggestion before the project-wide dismissal is recorded"
+      );
+
+      // Dismiss by the qualified form (`Sample.Vendor`). Before the fix, the
+      // bare-name map entry `Vendor` would still end up in the reverse lookup
+      // and the suggestion would stay.
+      await config.update(
+        "suggestionIgnoreVariables",
+        ["Sample.Vendor"],
+        vscode.ConfigurationTarget.Workspace
+      );
+      try {
+        await engine.refresh(document);
+        const after = collection.get(document.uri) ?? [];
+        assert.strictEqual(
+          after.length,
+          0,
+          "project-wide dismissal by qualified name should suppress the suggestion"
+        );
+      } finally {
+        await config.update(
+          "suggestionIgnoreVariables",
+          originalIgnore,
+          vscode.ConfigurationTarget.Workspace
+        );
+      }
+    } finally {
+      collection.dispose();
+      await fs.unlink(scratchPath).catch(() => undefined);
+    }
+  });
+
   test("a sidecar dismissal suppresses suggestions for the named variable in that topic", async () => {
     await clearSidecar();
     const scratchPath = path.join(FIXTURE_ROOT, "Content", "Topics", "__scratch-marker.htm");

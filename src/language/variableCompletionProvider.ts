@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { resolveVariables } from "../flare/variableResolver";
 import { DismissalStore } from "../diagnostics/dismissalStore";
+import { resolveIgnoredValues } from "./variableSuggestionEngine";
 
 const MAX_PREFIX_SCAN = 120;
 const MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION = 3;
@@ -108,6 +109,11 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
 
     const projectIgnore = readProjectIgnoreList();
     const ignoreList = new Set([...projectIgnore, ...sidecarDismissals]);
+    // Resolve the ignore list to the underlying variable *values* so that
+    // both the qualified and bare map entries for a dismissed variable are
+    // suppressed in one go. Without this, dismissing `Set.Name` would still
+    // leak the bare `Name` entry into the completion list.
+    const ignoredValues = resolveIgnoredValues(variables, ignoreList);
 
     // For each variable, find the longest candidate prefix (candidates are
     // pre-sorted longest first) that matches the start of its value. This
@@ -120,14 +126,10 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
       if (seenVariableNames.has(name)) {
         continue;
       }
-      if (ignoreList.has(name)) {
-        continue;
-      }
-      const bareName = name.includes(".") ? name.slice(name.indexOf(".") + 1) : name;
-      if (ignoreList.has(bareName)) {
-        continue;
-      }
       const trimmedValue = value.trim();
+      if (ignoredValues.has(trimmedValue)) {
+        continue;
+      }
 
       let matchedCandidate: PrefixCandidate | undefined;
       for (const candidate of candidates) {

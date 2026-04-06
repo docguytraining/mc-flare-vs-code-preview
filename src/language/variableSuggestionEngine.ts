@@ -186,19 +186,14 @@ function buildReverseLookup(
   // case-sensitively is the easiest way to keep generic English words like
   // "user" or "page" from triggering false suggestions when a variable also
   // happens to share a lowercase form.
+  const ignoredValues = resolveIgnoredValues(variables, ignoreList);
+
   const map = new Map<string, string>();
   for (const [name, value] of variables.entries()) {
-    if (ignoreList.has(name)) {
-      continue;
-    }
-    // Allow ignoring by either the qualified `<set>.<var>` form or the bare
-    // form. Strip the leading set prefix and check both.
-    const bareName = name.includes(".") ? name.slice(name.indexOf(".") + 1) : name;
-    if (ignoreList.has(bareName)) {
-      continue;
-    }
-
     const trimmed = value.trim();
+    if (ignoredValues.has(trimmed)) {
+      continue;
+    }
     if (trimmed.length < minLength) {
       continue;
     }
@@ -211,6 +206,44 @@ function buildReverseLookup(
     }
   }
   return map;
+}
+
+/**
+ * Resolves a set of ignored variable names to a set of ignored variable
+ * *values*. This is the only filter that works correctly given how the
+ * variables map holds each variable under both its qualified (`Set.Name`)
+ * and bare (`Name`) form: if the user dismissed either form, we want the
+ * underlying value to disappear from the reverse lookup so *neither* map
+ * entry can surface in a match.
+ *
+ * Exported so the value-prefix completion provider can apply the same
+ * filter by-value rather than by-name.
+ */
+export function resolveIgnoredValues(
+  variables: Map<string, string>,
+  ignoreList: Set<string>
+): Set<string> {
+  const result = new Set<string>();
+  for (const ignoredName of ignoreList) {
+    const directHit = variables.get(ignoredName);
+    if (directHit !== undefined) {
+      result.add(directHit.trim());
+    }
+    // Also resolve bare-form dismissals against every variable whose bare
+    // name matches — in the rare case two different sets define the same
+    // bare name, dismissing it suppresses both.
+    if (!ignoredName.includes(".")) {
+      for (const [candidateName, candidateValue] of variables.entries()) {
+        const bare = candidateName.includes(".")
+          ? candidateName.slice(candidateName.indexOf(".") + 1)
+          : candidateName;
+        if (bare === ignoredName) {
+          result.add(candidateValue.trim());
+        }
+      }
+    }
+  }
+  return result;
 }
 
 function findMatches(
