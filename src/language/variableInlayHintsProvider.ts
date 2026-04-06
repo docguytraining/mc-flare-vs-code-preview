@@ -3,7 +3,6 @@ import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { resolveVariables } from "../flare/variableResolver";
 
 const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/MadCap:variable>)?/gi;
-const DOLLAR_VARIABLE_REGEX = /\$\{([A-Za-z0-9_.-]+)\}/g;
 
 /**
  * Renders the resolved value of a MadCap variable reference as an inline hint
@@ -75,14 +74,6 @@ export class VariableInlayHintsProvider implements vscode.InlayHintsProvider {
       const end = madcapMatch.index + madcapMatch[0].length;
       addHint(end, madcapMatch[1]);
       madcapMatch = MADCAP_VARIABLE_REGEX.exec(text);
-    }
-
-    DOLLAR_VARIABLE_REGEX.lastIndex = 0;
-    let dollarMatch = DOLLAR_VARIABLE_REGEX.exec(text);
-    while (dollarMatch) {
-      const end = dollarMatch.index + dollarMatch[0].length;
-      addHint(end, dollarMatch[1]);
-      dollarMatch = DOLLAR_VARIABLE_REGEX.exec(text);
     }
 
     return hints;

@@ -24,7 +24,6 @@ export interface TransformHandler {
 }
 
 const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/MadCap:variable>)?/gi;
-const DOLLAR_VARIABLE_REGEX = /\$\{([A-Za-z0-9_.-]+)\}/g;
 const CONDITIONAL_BLOCK_REGEX = /<MadCap:conditionalBlock\b([^>]*)>([\s\S]*?)<\/MadCap:conditionalBlock>/gi;
 const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
@@ -130,7 +129,7 @@ function replaceMadcapVariables(
   variables: Map<string, string>,
   warnings: string[]
 ): string {
-  let transformed = htmlContent.replace(MADCAP_VARIABLE_REGEX, (_full, name: string) => {
+  return htmlContent.replace(MADCAP_VARIABLE_REGEX, (_full, name: string) => {
     const value = variables.get(name);
     if (value === undefined) {
       warnings.push(`Missing value for MadCap variable '${name}'.`);
@@ -138,17 +137,6 @@ function replaceMadcapVariables(
     }
     return escapeHtml(value);
   });
-
-  transformed = transformed.replace(DOLLAR_VARIABLE_REGEX, (_full, name: string) => {
-    const value = variables.get(name);
-    if (value === undefined) {
-      warnings.push(`Missing value for token variable '${name}'.`);
-      return `[${escapeHtml(name)}]`;
-    }
-    return escapeHtml(value);
-  });
-
-  return transformed;
 }
 
 function replaceConditionalBlocks(htmlContent: string, warnings: string[]): string {

@@ -30,10 +30,6 @@
     "technical writing",
     "help authoring"
   ],
-  "activationEvents": [
-    "onLanguage:html",
-    "onCommand:flare.previewHtml"
-  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -46,6 +42,12 @@
         "command": "flare.insertXref",
         "title": "Flare: Insert Cross-Reference",
         "category": "Flare"
+      },
+      {
+        "command": "flare.dismissVariableSuggestion",
+        "title": "Flare: Dismiss Variable Suggestion",
+        "category": "Flare",
+        "enablement": "false"
       }
     ],
     "menus": {
@@ -100,6 +102,14 @@
           "default": 4,
           "minimum": 2,
           "description": "Minimum length of a variable value before it is used for literal-match suggestions. Lower values produce more noise on short words."
+        },
+        "flarePreview.suggestionIgnoreVariables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Project-wide list of Flare variable names that should never produce literal-match suggestions or value-prefix completions. Add either the qualified name (e.g. 'UI.user') or the bare name. For per-topic dismissals, insert an inline '<!-- flare:no-suggest VariableName -->' comment instead."
         },
         "flarePreview.validateLinks": {
           "type": "boolean",

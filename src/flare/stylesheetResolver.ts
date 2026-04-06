@@ -26,9 +26,20 @@ export async function resolveStylesheets(
       discovered.set(referenced.fsPath, referenced);
     }
 
-    const stylesheetsDir = path.join(projectContext.projectRoot.fsPath, "Stylesheets");
-    for (const candidate of await findCssFiles(stylesheetsDir)) {
-      discovered.set(candidate.fsPath, candidate);
+    // Flare projects use a few stylesheet folder conventions. Walk all of
+    // them so auxiliary sheets (table styles, snippet helpers, etc.) get
+    // picked up alongside the master stylesheet referenced from the .flprj.
+    const stylesheetRoots = [
+      path.join(projectContext.projectRoot.fsPath, "Stylesheets"),
+      path.join(projectContext.projectRoot.fsPath, "Content", "Resources", "Stylesheets"),
+      path.join(projectContext.projectRoot.fsPath, "Content", "Resources", "TableStyles")
+    ];
+    for (const stylesheetRoot of stylesheetRoots) {
+      for (const candidate of await findCssFiles(stylesheetRoot)) {
+        if (!discovered.has(candidate.fsPath)) {
+          discovered.set(candidate.fsPath, candidate);
+        }
+      }
     }
   }
 

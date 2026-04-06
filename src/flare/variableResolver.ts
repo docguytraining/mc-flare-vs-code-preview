@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { FlareProjectContext, VariableResolutionResult } from "../core/types";
 
-const VARIABLE_REFERENCE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>|\$\{([A-Za-z0-9_.-]+)\}/gi;
+const VARIABLE_REFERENCE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>/gi;
 const VARIABLE_BLOCK_REGEX = /<Variable\b([^>]*)>([\s\S]*?)<\/Variable>/gi;
 const VARIABLE_SELF_CLOSING_REGEX = /<Variable\b([^>]*)\/>/gi;
 const NAME_ATTR_REGEX = /\bName\s*=\s*["']([^"']+)["']/i;
@@ -74,9 +74,8 @@ function findVariableReferences(html: string): string[] {
 
   let match = VARIABLE_REFERENCE_REGEX.exec(html);
   while (match) {
-    const name = match[1] || match[2];
-    if (name) {
-      matches.push(name);
+    if (match[1]) {
+      matches.push(match[1]);
     }
     match = VARIABLE_REFERENCE_REGEX.exec(html);
   }

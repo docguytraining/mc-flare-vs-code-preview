@@ -45,6 +45,11 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       2,
       config.get<number>("variableReplacementMinLength", 4)
     );
+    const projectIgnoreList = (config.get<string[]>("suggestionIgnoreVariables", []) ?? [])
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    const documentIgnoreList = readDocumentIgnoreMarkers(document.getText());
+    const ignoreList = new Set([...projectIgnoreList, ...documentIgnoreList]);
 
     let projectContext;
     try {
@@ -64,7 +69,7 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       return;
     }
 
-    const valueToName = buildReverseLookup(variableResult.variables, minLength);
+    const valueToName = buildReverseLookup(variableResult.variables, minLength, ignoreList);
     if (valueToName.size === 0) {
       this.diagnostics.delete(document.uri);
       return;
@@ -124,16 +129,34 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       );
       action.edit = edit;
       actions.push(action);
-      // Also offer the `${name}` shorthand for authors who prefer it.
-      const shorthand = new vscode.CodeAction(
-        `Replace with \${${match.variableName}}`,
+
+      // Per-topic dismissal: insert an inline `<!-- flare:no-suggest X -->`
+      // marker so this variable stops triggering in *this* topic only.
+      // Lives in the file so it's reviewable, source-controlled, and
+      // visible to teammates without sharing settings.
+      const topicDismissAction = new vscode.CodeAction(
+        `Never suggest '${match.variableName}' in this topic`,
         vscode.CodeActionKind.QuickFix
       );
-      shorthand.diagnostics = [diagnostic];
-      const shorthandEdit = new vscode.WorkspaceEdit();
-      shorthandEdit.replace(document.uri, diagnostic.range, `\${${match.variableName}}`);
-      shorthand.edit = shorthandEdit;
-      actions.push(shorthand);
+      topicDismissAction.diagnostics = [diagnostic];
+      topicDismissAction.edit = buildDismissMarkerEdit(document, match.variableName);
+      actions.push(topicDismissAction);
+
+      // Project-wide dismissal: persist the variable name to the workspace
+      // setting so it never triggers anywhere in this project. Use this for
+      // variables that are universally noisy across all topics.
+      const projectDismissAction = new vscode.CodeAction(
+        `Never suggest '${match.variableName}' anywhere in this project`,
+        vscode.CodeActionKind.QuickFix
+      );
+      projectDismissAction.diagnostics = [diagnostic];
+      projectDismissAction.command = {
+        command: "flare.dismissVariableSuggestion",
+        title: "Dismiss Flare variable suggestion project-wide",
+        arguments: [match.variableName]
+      };
+      actions.push(projectDismissAction);
+
       // Keep parameter alive for tooling without leaking state.
       void literal;
     }
@@ -143,10 +166,26 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
 
 function buildReverseLookup(
   variables: Map<string, string>,
-  minLength: number
+  minLength: number,
+  ignoreList: Set<string>
 ): Map<string, string> {
+  // Case-sensitive: keys are the exact (trimmed) variable value. Real Flare
+  // variable values carry intentional capitalization, and matching them
+  // case-sensitively is the easiest way to keep generic English words like
+  // "user" or "page" from triggering false suggestions when a variable also
+  // happens to share a lowercase form.
   const map = new Map<string, string>();
   for (const [name, value] of variables.entries()) {
+    if (ignoreList.has(name)) {
+      continue;
+    }
+    // Allow ignoring by either the qualified `<set>.<var>` form or the bare
+    // form. Strip the leading set prefix and check both.
+    const bareName = name.includes(".") ? name.slice(name.indexOf(".") + 1) : name;
+    if (ignoreList.has(bareName)) {
+      continue;
+    }
+
     const trimmed = value.trim();
     if (trimmed.length < minLength) {
       continue;
@@ -155,9 +194,8 @@ function buildReverseLookup(
     if (!/[A-Za-z]/.test(trimmed)) {
       continue;
     }
-    const key = trimmed.toLowerCase();
-    if (!map.has(key)) {
-      map.set(key, name);
+    if (!map.has(trimmed)) {
+      map.set(trimmed, name);
     }
   }
   return map;
@@ -171,14 +209,14 @@ function findMatches(
   const matches: SuggestionMatch[] = [];
   const skipRanges = computeSkipRanges(text);
 
-  for (const [lowerValue, name] of valueToName.entries()) {
-    // Build a word-boundary regex for literal values. Values may contain
-    // punctuation/spaces, so we escape them and bracket with \b only when the
-    // edge characters are word characters.
-    const escaped = escapeRegExp(lowerValue);
-    const leftBoundary = /^\w/.test(lowerValue) ? "\\b" : "";
-    const rightBoundary = /\w$/.test(lowerValue) ? "\\b" : "";
-    const regex = new RegExp(`${leftBoundary}${escaped}${rightBoundary}`, "gi");
+  for (const [exactValue, name] of valueToName.entries()) {
+    // Case-sensitive match (no `i` flag) and word-bounded so values that
+    // start/end with a word character don't accidentally match a substring
+    // inside a longer word.
+    const escaped = escapeRegExp(exactValue);
+    const leftBoundary = /^\w/.test(exactValue) ? "\\b" : "";
+    const rightBoundary = /\w$/.test(exactValue) ? "\\b" : "";
+    const regex = new RegExp(`${leftBoundary}${escaped}${rightBoundary}`, "g");
 
     let match = regex.exec(text);
     while (match) {
@@ -189,7 +227,7 @@ function findMatches(
           range: new vscode.Range(document.positionAt(start), document.positionAt(end)),
           literal: match[0],
           variableName: name,
-          variableValue: lowerValue
+          variableValue: exactValue
         });
       }
       match = regex.exec(text);
@@ -264,6 +302,58 @@ function isInsideSkipRange(start: number, end: number, ranges: Range[]): boolean
     }
   }
   return false;
+}
+
+const NO_SUGGEST_COMMENT_REGEX = /<!--\s*flare:no-suggest\s+([^>]*?)\s*-->/gi;
+
+/**
+ * Reads inline `<!-- flare:no-suggest VariableName[, VariableName2] -->`
+ * markers from a topic. Multiple comments are allowed; comma-separated
+ * names inside a single comment are also supported. The result is the union
+ * of every name found.
+ */
+export function readDocumentIgnoreMarkers(text: string): string[] {
+  const found: string[] = [];
+  NO_SUGGEST_COMMENT_REGEX.lastIndex = 0;
+  let match = NO_SUGGEST_COMMENT_REGEX.exec(text);
+  while (match) {
+    for (const part of match[1].split(",")) {
+      const name = part.trim();
+      if (name.length > 0) {
+        found.push(name);
+      }
+    }
+    match = NO_SUGGEST_COMMENT_REGEX.exec(text);
+  }
+  return found;
+}
+
+/**
+ * Computes a `WorkspaceEdit` that inserts a `<!-- flare:no-suggest X -->`
+ * marker into the topic in a sensible spot: just after the opening `<body>`
+ * tag if one exists, otherwise at the very top of the document. The marker
+ * goes on its own line so it doesn't interfere with surrounding markup.
+ */
+export function buildDismissMarkerEdit(
+  document: vscode.TextDocument,
+  variableName: string
+): vscode.WorkspaceEdit {
+  const edit = new vscode.WorkspaceEdit();
+  const text = document.getText();
+  const bodyMatch = /<body\b[^>]*>/i.exec(text);
+  let insertOffset = 0;
+  let leadingNewline = "";
+  if (bodyMatch) {
+    insertOffset = bodyMatch.index + bodyMatch[0].length;
+    leadingNewline = "\n  ";
+  } else {
+    insertOffset = 0;
+    leadingNewline = "";
+  }
+  const insertPosition = document.positionAt(insertOffset);
+  const marker = `${leadingNewline}<!-- flare:no-suggest ${variableName} -->`;
+  edit.insert(document.uri, insertPosition, marker);
+  return edit;
 }
 
 function parseMessage(message: string): { literal: string; variableName: string } | undefined {

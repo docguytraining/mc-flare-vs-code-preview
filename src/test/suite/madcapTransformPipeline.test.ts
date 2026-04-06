@@ -6,24 +6,21 @@ import * as vscode from "vscode";
 import { transformMadcapContent } from "../../flare/madcapTransformPipeline";
 
 suite("MadCap Transform Pipeline", () => {
-  test("resolves variables and token variables", async () => {
+  test("resolves <MadCap:variable> references and marks unresolved ones", async () => {
     const html = [
       "<p><MadCap:variable name=\"ProductName\" /></p>",
-      "<p>${BuildVersion}</p>",
       "<p><MadCap:variable name=\"MissingVar\" /></p>"
     ].join("\n");
 
     const result = await transformMadcapContent(html, {
       variables: new Map<string, string>([
-        ["ProductName", "Flare Preview"],
-        ["BuildVersion", "1.2.3"]
+        ["ProductName", "Flare Preview"]
       ]),
       projectContext: undefined,
       currentDocument: vscode.Uri.file("/tmp/topic.htm")
     });
 
     assert.ok(result.html.includes("Flare Preview"));
-    assert.ok(result.html.includes("1.2.3"));
     assert.ok(result.html.includes("madcap-missing-variable"));
     assert.ok(result.warnings.some((warning) => warning.includes("MissingVar")));
   });

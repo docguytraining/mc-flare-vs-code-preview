@@ -9,6 +9,7 @@ import {
   VariableResolutionResult
 } from "../core/types";
 import { sanitizeCss, sanitizeHtml } from "../security/contentSanitizer";
+import { transformFlareCss } from "../flare/flareCssTransform";
 import { logWarning } from "../core/logger";
 import { RenderCoordinator } from "./renderCoordinator";
 
@@ -172,18 +173,28 @@ export class FlarePreviewPanel {
       vscode.Uri.joinPath(this.extensionUri, "media", "preview.css")
     );
 
-    // Deterministic stylesheet order preserved from the resolver; each block
-    // is scrubbed of external url()/@import references before being inlined.
+    // Deterministic stylesheet order preserved from the resolver. For each
+    // file we (1) translate Flare-specific CSS properties (mc-auto-number-
+    // format → :before { content }) so admonition labels appear, then
+    // (2) scrub external url()/@import references for safety.
     const inlinedCssParts: string[] = [];
     let externalCssRefsBlocked = 0;
+    let flareRulesGenerated = 0;
     for (const entry of previewData.stylesheetBundle.inlinedCss) {
-      const scrubbed = sanitizeCss(entry.content);
+      const flareTransformed = transformFlareCss(entry.content);
+      flareRulesGenerated += flareTransformed.generatedRuleCount;
+      const scrubbed = sanitizeCss(flareTransformed.css);
       externalCssRefsBlocked += scrubbed.removed;
       inlinedCssParts.push(`\n/* ${escapeHtml(entry.source.fsPath)} */\n${scrubbed.css}`);
     }
     if (externalCssRefsBlocked > 0) {
       logWarning(
         `Blocked ${externalCssRefsBlocked} external CSS reference(s) in stylesheets for ${document.uri.fsPath}.`
+      );
+    }
+    if (flareRulesGenerated > 0) {
+      logWarning(
+        `Generated ${flareRulesGenerated} :before companion rule(s) from mc-auto-number-format declarations for ${document.uri.fsPath}.`
       );
     }
     const inlinedCss = inlinedCssParts.join("\n");
@@ -220,17 +231,17 @@ export class FlarePreviewPanel {
     <link rel="stylesheet" href="${baseStylesheetUri}" />
     <style>${inlinedCss}</style>
   </head>
-  <body>
-    <header>
+  <body class="flare-preview-body">
+    <header class="flare-preview-header">
       <h1>MadCap Flare Preview</h1>
       ${statusBar}
       <p class="file-path">${escapeHtml(document.uri.fsPath)}</p>
     </header>
     ${sanitizerNotice}
-    <section class="summary">${summary}</section>
-    <section class="diagnostics">${diagnosticList}</section>
+    <section class="flare-preview-summary">${summary}</section>
+    <section class="flare-preview-diagnostics">${diagnosticList}</section>
     <main>
-      <section class="rendered-topic">
+      <section class="flare-preview-rendered">
         <h2>Rendered Topic</h2>
         <article class="topic-frame">${rewrittenTopicHtml}</article>
       </section>

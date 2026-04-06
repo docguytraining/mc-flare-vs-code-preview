@@ -262,6 +262,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (
       event.affectsConfiguration("flarePreview.suggestVariableReplacements") ||
       event.affectsConfiguration("flarePreview.variableReplacementMinLength") ||
+      event.affectsConfiguration("flarePreview.suggestionIgnoreVariables") ||
       event.affectsConfiguration("flarePreview.validateLinks")
     ) {
       for (const document of vscode.workspace.textDocuments) {
@@ -286,7 +287,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const variableCompletionRegistration = vscode.languages.registerCompletionItemProvider(
     HTML_DOCUMENT_SELECTOR,
     new VariableCompletionProvider(projectResolver),
-    "$",
     '"',
     "'"
   );
@@ -307,6 +307,39 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
+
+  const dismissSuggestionRegistration = vscode.commands.registerCommand(
+    "flare.dismissVariableSuggestion",
+    async (variableName?: string) => {
+      if (typeof variableName !== "string" || variableName.length === 0) {
+        return;
+      }
+      const config = vscode.workspace.getConfiguration("flarePreview");
+      const current = config.get<string[]>("suggestionIgnoreVariables", []) ?? [];
+      if (current.includes(variableName)) {
+        return;
+      }
+      const next = [...current, variableName].sort();
+      try {
+        await config.update(
+          "suggestionIgnoreVariables",
+          next,
+          vscode.ConfigurationTarget.Workspace
+        );
+      } catch {
+        // Fall back to global if no workspace is open.
+        await config.update(
+          "suggestionIgnoreVariables",
+          next,
+          vscode.ConfigurationTarget.Global
+        );
+      }
+      for (const document of vscode.workspace.textDocuments) {
+        runAuthoringValidationImmediately(document);
+      }
+      logInfo(`Added '${variableName}' to suggestionIgnoreVariables.`);
+    }
+  );
 
   const onDidCreate = dependencyWatcher.onDidCreate(onDependencyChanged);
   const onDidChange = dependencyWatcher.onDidChange(onDependencyChanged);
@@ -332,6 +365,7 @@ export function activate(context: vscode.ExtensionContext): void {
     xrefCompletionRegistration,
     codeActionRegistration,
     insertXrefRegistration,
+    dismissSuggestionRegistration,
     suggestionDiagnostics,
     linkDiagnostics,
     {

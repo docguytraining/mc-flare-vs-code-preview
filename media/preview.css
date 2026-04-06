@@ -1,8 +1,29 @@
+/*
+ * Preview chrome stylesheet.
+ *
+ * Two style worlds live in this webview:
+ *
+ *   1. The preview chrome (header, status bar, diagnostics, summary). This
+ *      should always look like part of VS Code, regardless of the project's
+ *      stylesheet.
+ *
+ *   2. The rendered topic inside `.topic-frame`. This is where the project's
+ *      stylesheet (e.g. VenafiMasterStyleSheet.css) takes over. Flare project
+ *      stylesheets are designed for a white browser background, so the topic
+ *      frame is rendered as a self-contained light "sheet of paper" with an
+ *      explicit `color-scheme: light`.
+ *
+ * The preview chrome rules are scoped to `body.flare-preview-body` and to the
+ * specific chrome wrappers (`.flare-preview-header`, `.flare-preview-summary`,
+ * etc.) so that generic `body`/`h1`/`p`/`ul` rules from the project's
+ * stylesheet can't override them when both are inlined into the same webview.
+ */
+
 :root {
   color-scheme: light dark;
 }
 
-body {
+body.flare-preview-body {
   font-family: var(--vscode-font-family);
   margin: 0;
   padding: 1rem;
@@ -10,61 +31,129 @@ body {
   background: var(--vscode-editor-background);
 }
 
-header {
+.flare-preview-header {
   border-bottom: 1px solid var(--vscode-panel-border);
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
 }
 
-h1 {
+.flare-preview-header h1 {
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family);
+  font-weight: 600;
 }
 
-p {
+.flare-preview-header p {
   margin: 0.25rem 0;
+  color: var(--vscode-editor-foreground);
 }
 
-.file-path {
+.flare-preview-header .file-path {
   opacity: 0.8;
   font-size: 0.85rem;
 }
 
-pre {
-  white-space: pre-wrap;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 6px;
-  padding: 0.75rem;
+.flare-preview-summary,
+.flare-preview-diagnostics {
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
 }
 
+.flare-preview-summary h2,
+.flare-preview-diagnostics h2 {
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0.25rem;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+}
+
+.flare-preview-summary ul,
+.flare-preview-diagnostics ul {
+  margin: 0.25rem 0 0.5rem 1rem;
+  padding: 0;
+  list-style: disc;
+}
+
+.flare-preview-summary li,
+.flare-preview-diagnostics li {
+  margin: 0.1rem 0;
+  color: var(--vscode-editor-foreground);
+}
+
+.flare-preview-rendered h2 {
+  font-size: 0.95rem;
+  margin: 1rem 0 0.5rem;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+}
+
+/*
+ * The rendered topic. Always rendered against an explicit white background
+ * so the project's stylesheet (designed for a white browser background)
+ * stays legible regardless of the surrounding VS Code theme.
+ */
 .topic-frame {
   border: 1px solid var(--vscode-panel-border);
   border-radius: 8px;
-  padding: 1rem;
-  background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-button-background) 12%);
+  padding: 1.5rem 2rem;
+  color-scheme: light;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.topic-frame img {
+  max-width: 100%;
+  height: auto;
+}
+
+.topic-frame a.flare-xref {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+.topic-frame a.flare-xref:hover {
+  text-decoration: underline;
 }
 
 .madcap-unsupported-tag,
 .madcap-missing-variable,
 .madcap-missing-snippet {
-  color: var(--vscode-editorWarning-foreground);
+  color: #b54708;
   font-style: italic;
+  background: #fff7ed;
+  padding: 0 0.25rem;
+  border-radius: 3px;
 }
 
-details {
+.flare-preview-body details {
   margin-top: 1rem;
+  color: var(--vscode-editor-foreground);
 }
 
-summary {
+.flare-preview-body details > summary {
   cursor: pointer;
   font-weight: 600;
 }
 
-.warnings {
+.flare-preview-diagnostics .warnings {
   color: var(--vscode-editorWarning-foreground);
 }
 
-.ok {
+.flare-preview-diagnostics .ok {
   color: var(--vscode-testing-iconPassed);
 }
 
@@ -84,6 +173,7 @@ summary {
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
   background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-button-background) 8%);
+  color: var(--vscode-editor-foreground);
 }
 
 .status-bar .warn {
@@ -98,6 +188,7 @@ summary {
   border-radius: 6px;
   margin-bottom: 1rem;
   font-size: 0.85rem;
+  color: var(--vscode-editor-foreground);
 }
 
 .diagnostic {
