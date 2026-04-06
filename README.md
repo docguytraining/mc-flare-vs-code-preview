@@ -93,4 +93,4 @@ Implementation is tracked in [`.project-plan.md`](.project-plan.md), including p
 
 ## License
 
-No license file is included yet. Add a license before public release.
+MIT. See [LICENSE](LICENSE).

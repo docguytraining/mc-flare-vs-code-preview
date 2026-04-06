@@ -1,10 +1,61 @@
 import * as vscode from "vscode";
+import { FlareProjectResolver } from "./core/flareProjectResolver";
 import { FlarePreviewPanel } from "./preview/previewPanel";
+import { resolveStylesheets } from "./flare/stylesheetResolver";
+import { resolveVariables } from "./flare/variableResolver";
+import {
+  FlareProjectContext,
+  PreviewDiagnostics,
+  StylesheetBundle,
+  VariableResolutionResult
+} from "./core/types";
 
 const FLARE_PREVIEW_COMMAND = "flare.previewHtml";
 const FLARE_FILE_EXTENSIONS = new Set([".htm", ".html"]);
 
 export function activate(context: vscode.ExtensionContext): void {
+  const projectResolver = new FlareProjectResolver();
+
+  const buildPreviewData = async (
+    document: vscode.TextDocument
+  ): Promise<{
+    projectContext: FlareProjectContext | undefined;
+    variableResult: VariableResolutionResult;
+    stylesheetBundle: StylesheetBundle;
+    diagnostics: PreviewDiagnostics;
+  }> => {
+    const projectContext = await projectResolver.resolveForFile(document.uri);
+    const htmlContent = document.getText();
+    const variableResult = await resolveVariables(htmlContent, projectContext);
+    const stylesheetBundle = await resolveStylesheets(document, htmlContent, projectContext);
+
+    const warnings: string[] = [];
+    if (!projectContext) {
+      warnings.push("No .flprj file found by walking up from this topic.");
+    }
+
+    if (variableResult.unresolvedReferences.length > 0) {
+      warnings.push(
+        `Unresolved variables: ${variableResult.unresolvedReferences
+          .slice(0, 10)
+          .join(", ")}${
+          variableResult.unresolvedReferences.length > 10 ? " ..." : ""
+        }`
+      );
+    }
+
+    for (const missingStylesheet of stylesheetBundle.missingStylesheets) {
+      warnings.push(`Missing stylesheet: ${missingStylesheet}`);
+    }
+
+    return {
+      projectContext,
+      variableResult,
+      stylesheetBundle,
+      diagnostics: { warnings }
+    };
+  };
+
   const previewCommand = vscode.commands.registerCommand(
     FLARE_PREVIEW_COMMAND,
     async (resource?: vscode.Uri) => {
@@ -20,11 +71,49 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      FlarePreviewPanel.show(context.extensionUri, document);
+      await FlarePreviewPanel.show(context.extensionUri, document, buildPreviewData);
     }
   );
 
-  context.subscriptions.push(previewCommand);
+  const dependencyWatcher = vscode.workspace.createFileSystemWatcher("**/*.{flprj,flvar,css}");
+
+  const onDependencyChanged = async (uri: vscode.Uri): Promise<void> => {
+    projectResolver.invalidateForPath(uri.fsPath);
+    await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+  };
+
+  const onDidSave = vscode.workspace.onDidSaveTextDocument(async (document) => {
+    const autoRefresh = vscode.workspace
+      .getConfiguration("flarePreview")
+      .get<boolean>("autoRefreshOnSave", true);
+    if (!autoRefresh) {
+      return;
+    }
+
+    const lowerPath = document.uri.fsPath.toLowerCase();
+    if (lowerPath.endsWith(".flprj") || lowerPath.endsWith(".flvar") || lowerPath.endsWith(".css")) {
+      projectResolver.invalidateForPath(document.uri.fsPath);
+      await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+      return;
+    }
+
+    if (isFlareHtmlDocument(document)) {
+      await FlarePreviewPanel.refreshCurrent(buildPreviewData);
+    }
+  });
+
+  const onDidCreate = dependencyWatcher.onDidCreate(onDependencyChanged);
+  const onDidChange = dependencyWatcher.onDidChange(onDependencyChanged);
+  const onDidDelete = dependencyWatcher.onDidDelete(onDependencyChanged);
+
+  context.subscriptions.push(
+    previewCommand,
+    dependencyWatcher,
+    onDidCreate,
+    onDidChange,
+    onDidDelete,
+    onDidSave
+  );
 }
 
 export function deactivate(): void {

@@ -4,6 +4,7 @@
   "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering.",
   "version": "0.0.1",
   "publisher": "paulpehrson",
+  "license": "MIT",
   "private": true,
   "engines": {
     "vscode": "^1.95.0"

@@ -1,13 +1,30 @@
 import * as vscode from "vscode";
+import {
+  FlareProjectContext,
+  PreviewDiagnostics,
+  StylesheetBundle,
+  VariableResolutionResult
+} from "../core/types";
 
 const PANEL_VIEW_TYPE = "flare.previewPanel";
 
+type PreviewData = {
+  projectContext: FlareProjectContext | undefined;
+  variableResult: VariableResolutionResult;
+  stylesheetBundle: StylesheetBundle;
+  diagnostics: PreviewDiagnostics;
+};
+
+type PreviewDataResolver = (document: vscode.TextDocument) => Promise<PreviewData>;
+
 export class FlarePreviewPanel {
   private static currentPanel: FlarePreviewPanel | undefined;
+  private currentDocumentUri: vscode.Uri | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
-    private readonly extensionUri: vscode.Uri
+    private readonly extensionUri: vscode.Uri,
+    private readonly dataResolver: PreviewDataResolver
   ) {
     this.panel.onDidDispose(() => {
       FlarePreviewPanel.currentPanel = undefined;
@@ -16,12 +33,12 @@ export class FlarePreviewPanel {
 
   public static show(
     extensionUri: vscode.Uri,
-    document: vscode.TextDocument
-  ): void {
+    document: vscode.TextDocument,
+    dataResolver: PreviewDataResolver
+  ): Promise<void> {
     if (FlarePreviewPanel.currentPanel) {
       FlarePreviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
-      FlarePreviewPanel.currentPanel.update(document);
-      return;
+      return FlarePreviewPanel.currentPanel.update(document);
     }
 
     const panel = vscode.window.createWebviewPanel(
@@ -31,25 +48,57 @@ export class FlarePreviewPanel {
       {
         enableScripts: true,
         enableFindWidget: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")]
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, "media"),
+          ...(vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri)
+        ]
       }
     );
 
-    FlarePreviewPanel.currentPanel = new FlarePreviewPanel(panel, extensionUri);
-    FlarePreviewPanel.currentPanel.update(document);
+    FlarePreviewPanel.currentPanel = new FlarePreviewPanel(panel, extensionUri, dataResolver);
+    return FlarePreviewPanel.currentPanel.update(document);
   }
 
-  public update(document: vscode.TextDocument): void {
+  public static async refreshCurrent(dataResolver: PreviewDataResolver): Promise<void> {
+    if (!FlarePreviewPanel.currentPanel?.currentDocumentUri) {
+      return;
+    }
+
+    const currentPanel = FlarePreviewPanel.currentPanel;
+    const currentDocumentUri = currentPanel.currentDocumentUri;
+    if (!currentDocumentUri) {
+      return;
+    }
+
+    const document = await vscode.workspace.openTextDocument(currentDocumentUri);
+    await currentPanel.updateWithResolver(document, dataResolver);
+  }
+
+  public async update(document: vscode.TextDocument): Promise<void> {
+    await this.updateWithResolver(document, this.dataResolver);
+  }
+
+  private async updateWithResolver(
+    document: vscode.TextDocument,
+    dataResolver: PreviewDataResolver
+  ): Promise<void> {
+    this.currentDocumentUri = document.uri;
     this.panel.title = `Flare Preview: ${document.fileName.split(/[\\/]/).pop() ?? "topic"}`;
-    this.panel.webview.html = this.getWebviewContent(document);
+    const previewData = await dataResolver(document);
+    this.panel.webview.html = this.getWebviewContent(document, previewData);
   }
 
-  private getWebviewContent(document: vscode.TextDocument): string {
+  private getWebviewContent(document: vscode.TextDocument, previewData: PreviewData): string {
     const stylesheetUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "media", "preview.css")
     );
 
     const escapedContent = escapeHtml(document.getText());
+    const summary = this.renderSummary(previewData);
+    const diagnosticList = this.renderDiagnostics(previewData.diagnostics.warnings);
+    const inlinedCss = previewData.stylesheetBundle.inlinedCss
+      .map((entry) => `\n/* ${escapeHtml(entry.source.fsPath)} */\n${entry.content}`)
+      .join("\n");
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -58,18 +107,50 @@ export class FlarePreviewPanel {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MadCap Flare Preview</title>
     <link rel="stylesheet" href="${stylesheetUri}" />
+    <style>${inlinedCss}</style>
   </head>
   <body>
     <header>
-      <h1>MadCap Flare Preview (Phase 1)</h1>
-      <p>Raw HTML topic content is shown below. Flare-aware transforms arrive in later phases.</p>
+      <h1>MadCap Flare Preview (Phase 2)</h1>
+      <p>Project context, variables, and stylesheet discovery are now active.</p>
       <p class="file-path">${escapeHtml(document.uri.fsPath)}</p>
     </header>
+    <section class="summary">${summary}</section>
+    <section class="diagnostics">${diagnosticList}</section>
     <main>
+      <h2>Source Topic</h2>
       <pre>${escapedContent}</pre>
     </main>
   </body>
 </html>`;
+  }
+
+  private renderSummary(previewData: PreviewData): string {
+    const projectFile = previewData.projectContext?.projectFile.fsPath ?? "Not found";
+    const projectRoot = previewData.projectContext?.projectRoot.fsPath ?? "Not found";
+    const variableFileCount = previewData.projectContext?.variableFiles.length ?? 0;
+    const resolvedVariableCount = previewData.variableResult.variables.size;
+    const stylesheetCount = previewData.stylesheetBundle.stylesheets.length;
+
+    return `
+      <h2>Discovery Summary</h2>
+      <ul>
+        <li><strong>Project File:</strong> ${escapeHtml(projectFile)}</li>
+        <li><strong>Project Root:</strong> ${escapeHtml(projectRoot)}</li>
+        <li><strong>Variable Files:</strong> ${variableFileCount}</li>
+        <li><strong>Resolved Variables:</strong> ${resolvedVariableCount}</li>
+        <li><strong>Discovered Stylesheets:</strong> ${stylesheetCount}</li>
+      </ul>
+    `;
+  }
+
+  private renderDiagnostics(warnings: string[]): string {
+    if (warnings.length === 0) {
+      return "<h2>Diagnostics</h2><p class=\"ok\">No warnings.</p>";
+    }
+
+    const items = warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("\n");
+    return `<h2>Diagnostics</h2><ul class=\"warnings\">${items}</ul>`;
   }
 }
 
