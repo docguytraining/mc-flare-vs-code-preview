@@ -120,6 +120,22 @@ body.flare-preview-body {
   height: auto;
 }
 
+/*
+ * Heading contrast inside the topic frame. Project stylesheets sometimes
+ * use brand colors that wash out against the white preview background.
+ * `.topic-frame h2` has selector specificity (0,1,1), which beats the
+ * project's plain `h2 { color: … }` at (0,0,1) but still loses to any
+ * project rule that targets a class on the heading — so authors can
+ * override these per-section if they want to.
+ */
+.topic-frame h2 {
+  color: #1a1a2e;
+}
+
+.topic-frame h3 {
+  color: #1f2a44;
+}
+
 .topic-frame a.flare-xref {
   color: #0366d6;
   text-decoration: none;
