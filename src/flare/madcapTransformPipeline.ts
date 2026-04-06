@@ -4,10 +4,23 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectContext, TransformResult } from "../core/types";
 
-interface TransformContext {
+export interface TransformContext {
   variables: Map<string, string>;
   projectContext: FlareProjectContext | undefined;
   currentDocument: vscode.Uri;
+}
+
+export interface HandlerContext {
+  warnings: string[];
+}
+
+export interface TransformHandler {
+  id: string;
+  run(
+    htmlContent: string,
+    transformContext: TransformContext,
+    handlerContext: HandlerContext
+  ): Promise<string> | string;
 }
 
 const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/MadCap:variable>)?/gi;
@@ -19,17 +32,60 @@ const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/g
 const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
+const variableTransformHandler: TransformHandler = {
+  id: "variables",
+  run(htmlContent, transformContext, handlerContext) {
+    return replaceMadcapVariables(htmlContent, transformContext.variables, handlerContext.warnings);
+  }
+};
+
+const conditionalTransformHandler: TransformHandler = {
+  id: "conditionals",
+  run(htmlContent, _transformContext, handlerContext) {
+    return replaceConditionalBlocks(htmlContent, handlerContext.warnings);
+  }
+};
+
+const dropDownTransformHandler: TransformHandler = {
+  id: "dropdown-expandable",
+  run(htmlContent) {
+    return replaceDropDowns(htmlContent);
+  }
+};
+
+const snippetTransformHandler: TransformHandler = {
+  id: "snippets",
+  async run(htmlContent, transformContext, handlerContext) {
+    return replaceSnippets(htmlContent, transformContext, handlerContext.warnings);
+  }
+};
+
+const unsupportedTagTransformHandler: TransformHandler = {
+  id: "unsupported-markers",
+  run(htmlContent, _transformContext, handlerContext) {
+    return replaceUnsupportedTags(htmlContent, handlerContext.warnings);
+  }
+};
+
+const REGISTERED_HANDLERS: TransformHandler[] = [
+  variableTransformHandler,
+  conditionalTransformHandler,
+  dropDownTransformHandler,
+  snippetTransformHandler,
+  unsupportedTagTransformHandler
+];
+
 export async function transformMadcapContent(
   htmlContent: string,
   context: TransformContext
 ): Promise<TransformResult> {
   const warnings: string[] = [];
+  const handlerContext: HandlerContext = { warnings };
+  let transformed = htmlContent;
 
-  let transformed = replaceMadcapVariables(htmlContent, context.variables, warnings);
-  transformed = replaceConditionalBlocks(transformed, warnings);
-  transformed = replaceDropDowns(transformed);
-  transformed = await replaceSnippets(transformed, context, warnings);
-  transformed = replaceUnsupportedTags(transformed, warnings);
+  for (const handler of REGISTERED_HANDLERS) {
+    transformed = await handler.run(transformed, context, handlerContext);
+  }
 
   return {
     html: transformed,

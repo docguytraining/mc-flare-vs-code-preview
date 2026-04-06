@@ -8,7 +8,7 @@ The goal is to render elements that standard HTML previewers skip because they a
 
 This repository is in active development.
 
-Phase 3 is in progress.
+Phase 3 core checklist is complete.
 
 Implemented so far:
 - TypeScript VS Code extension scaffold
@@ -22,7 +22,7 @@ Implemented so far:
 - MadCap transform pipeline for variables, conditional blocks, drop-down/expandable regions, and snippets
 - Unsupported MadCap tag markers and transform warnings in preview
 
-Remaining Phase 3 work includes formal handler registration abstractions and broader real-project validation.
+Next focus areas are Phase 4 preview interaction refinements and broader real-project validation.
 
 ## Planned Capability
 
