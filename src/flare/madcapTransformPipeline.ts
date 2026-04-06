@@ -1,0 +1,257 @@
+import * as fs from "node:fs/promises";
+import { existsSync } from "node:fs";
+import * as path from "node:path";
+import * as vscode from "vscode";
+import { FlareProjectContext, TransformResult } from "../core/types";
+
+interface TransformContext {
+  variables: Map<string, string>;
+  projectContext: FlareProjectContext | undefined;
+  currentDocument: vscode.Uri;
+}
+
+const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/MadCap:variable>)?/gi;
+const DOLLAR_VARIABLE_REGEX = /\$\{([A-Za-z0-9_.-]+)\}/g;
+const CONDITIONAL_BLOCK_REGEX = /<MadCap:conditionalBlock\b([^>]*)>([\s\S]*?)<\/MadCap:conditionalBlock>/gi;
+const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
+const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
+const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/gi;
+const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
+const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
+
+export async function transformMadcapContent(
+  htmlContent: string,
+  context: TransformContext
+): Promise<TransformResult> {
+  const warnings: string[] = [];
+
+  let transformed = replaceMadcapVariables(htmlContent, context.variables, warnings);
+  transformed = replaceConditionalBlocks(transformed, warnings);
+  transformed = replaceDropDowns(transformed);
+  transformed = await replaceSnippets(transformed, context, warnings);
+  transformed = replaceUnsupportedTags(transformed, warnings);
+
+  return {
+    html: transformed,
+    warnings: dedupe(warnings)
+  };
+}
+
+function replaceMadcapVariables(
+  htmlContent: string,
+  variables: Map<string, string>,
+  warnings: string[]
+): string {
+  let transformed = htmlContent.replace(MADCAP_VARIABLE_REGEX, (_full, name: string) => {
+    const value = variables.get(name);
+    if (value === undefined) {
+      warnings.push(`Missing value for MadCap variable '${name}'.`);
+      return `<span class="madcap-missing-variable" data-name="${escapeHtml(name)}">[${escapeHtml(name)}]</span>`;
+    }
+    return escapeHtml(value);
+  });
+
+  transformed = transformed.replace(DOLLAR_VARIABLE_REGEX, (_full, name: string) => {
+    const value = variables.get(name);
+    if (value === undefined) {
+      warnings.push(`Missing value for token variable '${name}'.`);
+      return `[${escapeHtml(name)}]`;
+    }
+    return escapeHtml(value);
+  });
+
+  return transformed;
+}
+
+function replaceConditionalBlocks(htmlContent: string, warnings: string[]): string {
+  return htmlContent.replace(CONDITIONAL_BLOCK_REGEX, (_full, attributes: string, content: string) => {
+    const condition = readAttribute(attributes, ["MadCap:conditions", "conditions", "condition"]);
+    if (shouldRenderCondition(condition)) {
+      return `<div class="madcap-conditional">${content}</div>`;
+    }
+
+    warnings.push(`Conditional block hidden due to condition '${condition ?? "(empty)"}'.`);
+    return "";
+  });
+}
+
+function replaceDropDowns(htmlContent: string): string {
+  return htmlContent.replace(DROPDOWN_REGEX, (_full, tagName: string, attributes: string, content: string) => {
+    const declaredTitle = readAttribute(attributes, ["title", "MadCap:dropDownHotspot"]);
+    const hotspotMatch = HOTSPOT_REGEX.exec(content);
+    HOTSPOT_REGEX.lastIndex = 0;
+
+    let body = content;
+    let hotspotTitle = "";
+    if (hotspotMatch) {
+      hotspotTitle = stripTags(hotspotMatch[1]).trim();
+      body = content.replace(HOTSPOT_REGEX, "");
+    }
+
+    const title = declaredTitle?.trim() || hotspotTitle || (tagName === "dropDown" ? "Details" : "Expand");
+    return `<details class="madcap-${tagName.toLowerCase()}"><summary>${escapeHtml(title)}</summary><div class="madcap-expandable-content">${body}</div></details>`;
+  });
+}
+
+async function replaceSnippets(
+  htmlContent: string,
+  context: TransformContext,
+  warnings: string[]
+): Promise<string> {
+  let transformed = htmlContent;
+
+  transformed = await replaceMatchesAsync(
+    transformed,
+    SNIPPET_SELF_CLOSING_REGEX,
+    async (_full: string, _tagName: string, attributes: string) => {
+      const src = readAttribute(attributes, ["src", "source"]);
+      return loadSnippet(src, context, warnings);
+    }
+  );
+
+  transformed = await replaceMatchesAsync(
+    transformed,
+    SNIPPET_BLOCK_REGEX,
+    async (_full: string, _tagName: string, attributes: string) => {
+      const src = readAttribute(attributes, ["src", "source"]);
+      return loadSnippet(src, context, warnings);
+    }
+  );
+
+  return transformed;
+}
+
+function replaceUnsupportedTags(htmlContent: string, warnings: string[]): string {
+  return htmlContent.replace(REMAINING_MADCAP_TAG_REGEX, (_full, tagName: string) => {
+    warnings.push(`Unsupported MadCap tag encountered: ${tagName}`);
+    return `<span class="madcap-unsupported-tag" data-tag="${escapeHtml(tagName)}">[Unsupported MadCap:${escapeHtml(tagName)}]</span>`;
+  });
+}
+
+function shouldRenderCondition(conditionValue: string | undefined): boolean {
+  if (!conditionValue) {
+    return true;
+  }
+
+  const normalized = conditionValue.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (
+    normalized === "false" ||
+    normalized === "0" ||
+    normalized === "none" ||
+    normalized === "exclude" ||
+    normalized === "hide"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+async function loadSnippet(
+  snippetSource: string | undefined,
+  context: TransformContext,
+  warnings: string[]
+): Promise<string> {
+  if (!snippetSource) {
+    warnings.push("Snippet tag missing src/source attribute.");
+    return "<div class=\"madcap-missing-snippet\">[Snippet missing source]</div>";
+  }
+
+  const resolvedPath = resolveSnippetPath(snippetSource, context);
+  if (!resolvedPath) {
+    warnings.push(`Snippet path could not be resolved: ${snippetSource}`);
+    return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
+  }
+
+  try {
+    const bytes = await fs.readFile(resolvedPath);
+    return Buffer.from(bytes).toString("utf8");
+  } catch {
+    warnings.push(`Snippet file missing: ${resolvedPath}`);
+    return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
+  }
+}
+
+function resolveSnippetPath(source: string, context: TransformContext): string | undefined {
+  const normalized = source.replace(/\\/g, "/");
+
+  if (path.isAbsolute(normalized)) {
+    return normalized;
+  }
+
+  const documentDir = path.dirname(context.currentDocument.fsPath);
+  const candidateFromDoc = path.resolve(documentDir, normalized);
+  if (pathExists(candidateFromDoc)) {
+    return candidateFromDoc;
+  }
+
+  if (context.projectContext) {
+    const candidateFromProject = path.resolve(context.projectContext.projectRoot.fsPath, normalized);
+    if (pathExists(candidateFromProject)) {
+      return candidateFromProject;
+    }
+  }
+
+  return candidateFromDoc;
+}
+
+function pathExists(candidate: string): boolean {
+  return existsSync(candidate);
+}
+
+function readAttribute(source: string, names: string[]): string | undefined {
+  for (const name of names) {
+    const regex = new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*["']([^"']+)["']`, "i");
+    const match = regex.exec(source);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return undefined;
+}
+
+function stripTags(value: string): string {
+  return value.replace(/<[^>]+>/g, "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function dedupe(items: string[]): string[] {
+  return [...new Set(items)];
+}
+
+async function replaceMatchesAsync(
+  input: string,
+  regex: RegExp,
+  replacer: (...args: string[]) => Promise<string>
+): Promise<string> {
+  regex.lastIndex = 0;
+  let result = "";
+  let lastIndex = 0;
+
+  let match = regex.exec(input);
+  while (match) {
+    result += input.slice(lastIndex, match.index);
+    result += await replacer(...match);
+    lastIndex = match.index + match[0].length;
+    match = regex.exec(input);
+  }
+
+  result += input.slice(lastIndex);
+  return result;
+}

@@ -24,3 +24,8 @@ export interface StylesheetBundle {
 export interface PreviewDiagnostics {
   warnings: string[];
 }
+
+export interface TransformResult {
+  html: string;
+  warnings: string[];
+}

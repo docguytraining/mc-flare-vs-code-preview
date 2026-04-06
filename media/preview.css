@@ -36,3 +36,34 @@ pre {
   border-radius: 6px;
   padding: 0.75rem;
 }
+
+.topic-frame {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-button-background) 12%);
+}
+
+.madcap-unsupported-tag,
+.madcap-missing-variable,
+.madcap-missing-snippet {
+  color: var(--vscode-editorWarning-foreground);
+  font-style: italic;
+}
+
+details {
+  margin-top: 1rem;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.warnings {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.ok {
+  color: var(--vscode-testing-iconPassed);
+}

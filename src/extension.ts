@@ -3,10 +3,12 @@ import { FlareProjectResolver } from "./core/flareProjectResolver";
 import { FlarePreviewPanel } from "./preview/previewPanel";
 import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
+import { transformMadcapContent } from "./flare/madcapTransformPipeline";
 import {
   FlareProjectContext,
   PreviewDiagnostics,
   StylesheetBundle,
+  TransformResult,
   VariableResolutionResult
 } from "./core/types";
 
@@ -22,12 +24,18 @@ export function activate(context: vscode.ExtensionContext): void {
     projectContext: FlareProjectContext | undefined;
     variableResult: VariableResolutionResult;
     stylesheetBundle: StylesheetBundle;
+    transformResult: TransformResult;
     diagnostics: PreviewDiagnostics;
   }> => {
     const projectContext = await projectResolver.resolveForFile(document.uri);
     const htmlContent = document.getText();
     const variableResult = await resolveVariables(htmlContent, projectContext);
     const stylesheetBundle = await resolveStylesheets(document, htmlContent, projectContext);
+    const transformResult = await transformMadcapContent(htmlContent, {
+      variables: variableResult.variables,
+      projectContext,
+      currentDocument: document.uri
+    });
 
     const warnings: string[] = [];
     if (!projectContext) {
@@ -48,10 +56,13 @@ export function activate(context: vscode.ExtensionContext): void {
       warnings.push(`Missing stylesheet: ${missingStylesheet}`);
     }
 
+    warnings.push(...transformResult.warnings);
+
     return {
       projectContext,
       variableResult,
       stylesheetBundle,
+      transformResult,
       diagnostics: { warnings }
     };
   };

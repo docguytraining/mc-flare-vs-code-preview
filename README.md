@@ -8,14 +8,21 @@ The goal is to render elements that standard HTML previewers skip because they a
 
 This repository is in active development.
 
-Phase 1 foundation is implemented:
+Phase 3 is in progress.
+
+Implemented so far:
 - TypeScript VS Code extension scaffold
 - `Flare: Preview HTML Topic` command
 - Editor title and Explorer context menu integration for `.htm`/`.html`
 - Preview webview panel lifecycle (open/reveal/dispose)
 - Build/lint/test script setup
+- Flare project discovery via nearest `.flprj`
+- `.flvar` variable parsing and unresolved variable diagnostics
+- Stylesheet discovery from topic and project sources with `@import` expansion
+- MadCap transform pipeline for variables, conditional blocks, drop-down/expandable regions, and snippets
+- Unsupported MadCap tag markers and transform warnings in preview
 
-Flare-specific parsing and rendering logic is planned for subsequent phases.
+Remaining Phase 3 work includes formal handler registration abstractions and broader real-project validation.
 
 ## Planned Capability
 

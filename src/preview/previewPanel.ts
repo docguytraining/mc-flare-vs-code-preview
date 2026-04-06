@@ -3,6 +3,7 @@ import {
   FlareProjectContext,
   PreviewDiagnostics,
   StylesheetBundle,
+  TransformResult,
   VariableResolutionResult
 } from "../core/types";
 
@@ -12,6 +13,7 @@ type PreviewData = {
   projectContext: FlareProjectContext | undefined;
   variableResult: VariableResolutionResult;
   stylesheetBundle: StylesheetBundle;
+  transformResult: TransformResult;
   diagnostics: PreviewDiagnostics;
 };
 
@@ -111,15 +113,21 @@ export class FlarePreviewPanel {
   </head>
   <body>
     <header>
-      <h1>MadCap Flare Preview (Phase 2)</h1>
-      <p>Project context, variables, and stylesheet discovery are now active.</p>
+      <h1>MadCap Flare Preview (Phase 3)</h1>
+      <p>MadCap-aware transformation is active for variables, conditionals, drop-downs, and snippets.</p>
       <p class="file-path">${escapeHtml(document.uri.fsPath)}</p>
     </header>
     <section class="summary">${summary}</section>
     <section class="diagnostics">${diagnosticList}</section>
     <main>
-      <h2>Source Topic</h2>
-      <pre>${escapedContent}</pre>
+      <section class="rendered-topic">
+        <h2>Rendered Topic</h2>
+        <article class="topic-frame">${previewData.transformResult.html}</article>
+      </section>
+      <details>
+        <summary>Source Topic</summary>
+        <pre>${escapedContent}</pre>
+      </details>
     </main>
   </body>
 </html>`;
@@ -131,6 +139,7 @@ export class FlarePreviewPanel {
     const variableFileCount = previewData.projectContext?.variableFiles.length ?? 0;
     const resolvedVariableCount = previewData.variableResult.variables.size;
     const stylesheetCount = previewData.stylesheetBundle.stylesheets.length;
+    const transformWarningCount = previewData.transformResult.warnings.length;
 
     return `
       <h2>Discovery Summary</h2>
@@ -140,6 +149,7 @@ export class FlarePreviewPanel {
         <li><strong>Variable Files:</strong> ${variableFileCount}</li>
         <li><strong>Resolved Variables:</strong> ${resolvedVariableCount}</li>
         <li><strong>Discovered Stylesheets:</strong> ${stylesheetCount}</li>
+        <li><strong>Transform Warnings:</strong> ${transformWarningCount}</li>
       </ul>
     `;
   }
