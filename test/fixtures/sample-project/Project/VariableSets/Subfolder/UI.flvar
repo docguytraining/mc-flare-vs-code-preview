@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatapultVariableSet>
+  <Variable Name="ButtonLabel" OriginalName="ButtonLabel">Save Changes</Variable>
+  <Variable Name="MenuLabel" Comment="Top-level menu">Settings</Variable>
+  <Variable Name="TrademarkSymbol">™</Variable>
+</CatapultVariableSet>

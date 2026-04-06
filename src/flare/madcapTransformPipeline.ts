@@ -32,6 +32,9 @@ const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/g
 const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const XREF_SELF_CLOSING_REGEX = /<MadCap:xref\b([^>]*)\/>/gi;
 const XREF_BLOCK_REGEX = /<MadCap:xref\b([^>]*)>([\s\S]*?)<\/MadCap:xref>/gi;
+const KEYWORD_TAG_REGEX = /<MadCap:keyword\b[^>]*\/>|<MadCap:keyword\b[^>]*>[\s\S]*?<\/MadCap:keyword>/gi;
+const ANNOTATION_BLOCK_REGEX = /<MadCap:annotation\b[^>]*>([\s\S]*?)<\/MadCap:annotation>/gi;
+const ANNOTATION_SELF_CLOSING_REGEX = /<MadCap:annotation\b[^>]*\/>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -69,6 +72,24 @@ const xrefTransformHandler: TransformHandler = {
   }
 };
 
+/**
+ * Silently drops authoring/metadata tags whose content (or absence of
+ * content) should never appear in the rendered preview. Runs before the
+ * unsupported-tag fallback so these don't pollute the warning list.
+ */
+const metadataDropHandler: TransformHandler = {
+  id: "metadata-drop",
+  run(htmlContent) {
+    let transformed = htmlContent.replace(KEYWORD_TAG_REGEX, "");
+    transformed = transformed.replace(
+      ANNOTATION_BLOCK_REGEX,
+      (_full, body: string) => body
+    );
+    transformed = transformed.replace(ANNOTATION_SELF_CLOSING_REGEX, "");
+    return transformed;
+  }
+};
+
 const unsupportedTagTransformHandler: TransformHandler = {
   id: "unsupported-markers",
   run(htmlContent, _transformContext, handlerContext) {
@@ -82,6 +103,7 @@ const REGISTERED_HANDLERS: TransformHandler[] = [
   dropDownTransformHandler,
   snippetTransformHandler,
   xrefTransformHandler,
+  metadataDropHandler,
   unsupportedTagTransformHandler
 ];
 
