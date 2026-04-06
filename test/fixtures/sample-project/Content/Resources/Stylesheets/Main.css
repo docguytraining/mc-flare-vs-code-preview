@@ -1,0 +1,9 @@
+@import "Shared.css";
+
+body {
+  font-family: sans-serif;
+}
+
+h1 {
+  color: #4444aa;
+}

@@ -1,7 +1,13 @@
 .vscode/**
 .vscode-test/**
+.claude/**
 src/**
+test/**
+out/test/**
 .eslintrc.*
+eslint.config.*
 tsconfig.json
+.project-plan.md
+*.vsix
 **/*.map
 **/*.ts

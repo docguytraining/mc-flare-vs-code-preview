@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Catalog xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">
+  <VariableSet Source="Project/VariableSets/Sample.flvar" />
+  <MasterStylesheet Source="Content/Resources/Stylesheets/Main.css" />
+</Catalog>

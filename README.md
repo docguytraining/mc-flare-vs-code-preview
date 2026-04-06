@@ -1,64 +1,47 @@
 # MadCap Flare VS Code Preview
 
-A VS Code extension project that previews MadCap Flare topic files (`.htm` and `.html`) with Flare-aware processing.
+Preview MadCap Flare topic files (`.htm` / `.html`) inside VS Code with Flare-aware rendering: variables are resolved, conditional blocks are applied, drop-down and expandable regions expand to native `<details>`, snippets are inlined, and project stylesheets are applied so the preview looks closer to what Flare's compiled output would produce than a generic HTML previewer.
 
-The goal is to render elements that standard HTML previewers skip because they are not part of the HTML spec (for example Flare variables and MadCap-specific tags).
+## Features
 
-## Current Status
+- **Flare project discovery** — walks upward from the active topic to locate the nearest `.flprj` and caches the result per project root.
+- **Variable resolution** — parses every `.flvar` referenced by the project and substitutes `<MadCap:variable>` and `${token}` references, with a diagnostic for every unresolved name.
+- **Stylesheet aggregation** — collects topic-linked stylesheets, project-level stylesheets, and resolves `@import`/relative asset URLs in a deterministic order.
+- **MadCap transform pipeline** — ordered handlers for variables, conditional blocks, drop-down/expandable regions, and snippet includes, with fallback markers for unsupported tags.
+- **Webview preview** — strict Content Security Policy, nonced scripts, workspace-scoped `localResourceRoots`, webview URI rewriting for local `img`/`href` targets, and an HTML/CSS sanitizer that strips scripts, inline styles, event handlers, and external resource references.
+- **Refresh engine** — immediate refresh on save or dependency change, 800 ms debounced typing refresh (configurable), single-in-flight renders with stale cancellation, and a 10 s coalescing safeguard so rapid edits never starve the preview.
+- **Structured diagnostics** — every warning carries a code, severity, and actionable hint and is surfaced both in the preview panel and in the `MadCap Flare Preview` output channel.
 
-This repository is in active development.
+## Commands
 
-Phase 5 core checklist is complete.
+| Command ID | Title | Entry points |
+| --- | --- | --- |
+| `flare.previewHtml` | `Flare: Preview HTML Topic` | Command palette, editor title bar (`.htm`/`.html`), Explorer context menu |
 
-Implemented so far:
-- TypeScript VS Code extension scaffold
-- `Flare: Preview HTML Topic` command
-- Editor title and Explorer context menu integration for `.htm`/`.html`
-- Preview webview panel lifecycle (open/reveal/dispose)
-- Build/lint/test script setup
-- Flare project discovery via nearest `.flprj`
-- `.flvar` variable parsing and unresolved variable diagnostics
-- Stylesheet discovery from topic and project sources with `@import` expansion
-- MadCap transform pipeline for variables, conditional blocks, drop-down/expandable regions, and snippets
-- Unsupported MadCap tag markers and transform warnings in preview
-- Render coordinator with save/dependency refresh, debounced typing refresh, single-in-flight renders, and 10 s coalescing safeguard
-- Local resource rewriting through webview URIs
-- Strict CSP with nonced script policy, workspace-scoped `localResourceRoots`, and blocked external image/connect/frame/object/form sources
-- Regex-based HTML sanitizer that strips `<script>`, `<iframe>`, `<object>`, inline `<style>`, meta refresh, inline event handlers, and `javascript:`/non-image `data:` URLs
-- CSS sanitizer that blocks external `@import` and `url(http(s)://...)` references
-- Structured diagnostics (code, severity, hint) for missing variables, stylesheets, snippets, unsupported tags, and pipeline failures
-- Error boundaries around project resolution, variable resolution, stylesheet resolution, and MadCap transform stages with a fallback escaped-source render
-- Output channel logging for preview failures and sanitizer activity
+## Configuration
 
-Next focus area is Phase 6 validation and publish readiness.
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `flarePreview.autoRefreshOnSave` | `boolean` | `true` | Refresh the preview after saving an HTML topic or a dependency file (`.flprj`, `.flvar`, `.css`). |
+| `flarePreview.typingDebounceMs` | `number` | `800` | Debounce delay for typing-driven preview refresh. Minimum 300 ms. |
 
-## Planned Capability
+## Supported MadCap tags
 
-- Detect nearest Flare project by locating `.flprj`
-- Resolve Flare variables from project sources
-- Locate and apply topic and project stylesheets
-- Transform MadCap-supported elements for accurate preview
-- Auto-refresh preview on save and dependency changes
+| Feature | Status | Notes |
+| --- | --- | --- |
+| `<MadCap:variable>` / `${token}` | Supported | Value sourced from project `.flvar` files. Unresolved names render a marker and warning. |
+| `<MadCap:conditionalBlock>` | Supported (baseline) | Condition values of `false`, `0`, `none`, `exclude`, or `hide` suppress the block; everything else renders. Full include/exclude expression evaluation is not yet implemented. |
+| `<MadCap:dropDown>` / `<MadCap:expandableArea>` | Supported | Converted to native `<details>`/`<summary>` using the hotspot text or the `title` attribute as the summary. |
+| `<MadCap:snippet>` / `<MadCap:snippetBlock>` | Supported | Resolved relative to the topic first, then the project root. Missing snippets render an inline warning marker. |
+| Unsupported MadCap tags | Placeholder | Unknown tags render as `[Unsupported MadCap:tagName]` markers and emit a structured warning instead of breaking the preview. |
 
-## Repository Structure
+### Known limitations
 
-```text
-.
-|- media/
-|  |- preview.css
-|- src/
-|  |- extension.ts
-|  |- preview/
-|  |  |- previewPanel.ts
-|  |- test/
-|     |- runTest.ts
-|     |- suite/
-|        |- index.ts
-|        |- extension.test.ts
-|- .project-plan.md
-|- package.json
-|- tsconfig.json
-```
+- No breadcrumb, TOC proxy, or other Flare proxy rendering.
+- Conditional expressions only honor a small set of suppression keywords; include/exclude target sets are not yet modeled.
+- WYSIWYG editing inside the preview is out of scope.
+- Full Flare build simulation (master pages, skins, relationship tables) is not performed.
+- The HTML sanitizer is regex-based — good enough for trusted topic content, but not a replacement for a DOM sanitizer if you render untrusted HTML.
 
 ## Requirements
 
@@ -68,43 +51,52 @@ Next focus area is Phase 6 validation and publish readiness.
 
 ## Getting Started
 
-1. Install dependencies:
-
 ```bash
 npm install
-```
-
-2. Build the extension:
-
-```bash
 npm run compile
 ```
 
-3. Open the project in VS Code and start extension development:
-
-- Press `F5` to launch an Extension Development Host.
-- Open any `.htm` or `.html` file.
-- Run `Flare: Preview HTML Topic` from the Command Palette.
+Open the project in VS Code and press `F5` to launch an Extension Development Host. Open any `.htm` or `.html` topic and run `Flare: Preview HTML Topic` from the Command Palette (or click the preview button in the editor title bar).
 
 ## Scripts
 
-- `npm run compile` - compile TypeScript to `out/`
-- `npm run watch` - compile in watch mode
-- `npm run lint` - run ESLint on TypeScript source
-- `npm test` - run extension tests
-- `npm run package` - build a `.vsix` package
+- `npm run compile` — compile TypeScript to `out/`
+- `npm run watch` — compile in watch mode
+- `npm run lint` — run ESLint on TypeScript source
+- `npm test` — run the extension test suite (unit + fixture integration tests)
+- `npm run package` — build a `.vsix` package with `@vscode/vsce`
 
-## Publishing Notes
+## Repository Structure
 
-Before publishing to the VS Code Marketplace:
-- Replace placeholder publisher metadata as needed.
-- Add extension icon and screenshots.
-- Finalize settings and supported MadCap feature matrix.
-- Verify behavior against real Flare projects.
+```text
+.
+|- media/                                  preview stylesheet and assets
+|- src/
+|  |- extension.ts                         activation, command wiring, diagnostics pipeline
+|  |- core/                                project resolver, shared types, logger
+|  |- flare/                               variable/stylesheet/transform pipeline
+|  |- preview/                             webview panel and render coordinator
+|  |- security/                            HTML + CSS sanitizers
+|  |- test/suite/                          mocha test suites
+|- test/fixtures/sample-project/           Flare project fixture used by integration tests
+|- .project-plan.md                        phase checklist and verification notes
+|- package.json
+|- tsconfig.json
+```
+
+## Release Checklist
+
+- [ ] `npm run lint` and `npm test` pass on a clean checkout
+- [ ] Version bumped in `package.json`
+- [ ] `CHANGELOG.md` updated with the release notes
+- [ ] Marketplace assets (icon, screenshots) present
+- [ ] `npm run package` produces a VSIX and installs cleanly in a fresh VS Code profile
+- [ ] Smoke test against at least one real Flare project (variables, conditionals, snippets, stylesheets)
+- [ ] Git tag created for the released version
 
 ## Roadmap
 
-Implementation is tracked in [`.project-plan.md`](.project-plan.md), including phase checklists and verification criteria.
+Phase-by-phase status lives in [`.project-plan.md`](.project-plan.md). Phases 1–6 (scaffold, discovery, transforms, preview interaction, security/diagnostics, validation and publish readiness) are complete.
 
 ## License
 

@@ -1,23 +1,38 @@
 {
   "name": "mc-flare-vs-code-preview",
   "displayName": "MadCap Flare Preview",
-  "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering.",
-  "version": "0.0.1",
+  "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering of variables, snippets, conditionals, and stylesheets.",
+  "version": "0.1.0",
   "publisher": "paulpehrson",
   "license": "MIT",
   "private": true,
   "engines": {
     "vscode": "^1.95.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paulpehrson/mc-flare-vs-code-preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paulpehrson/mc-flare-vs-code-preview/issues"
+  },
+  "homepage": "https://github.com/paulpehrson/mc-flare-vs-code-preview#readme",
   "categories": [
-    "Other"
+    "Other",
+    "Visualization"
   ],
   "keywords": [
     "madcap",
     "flare",
     "html",
     "preview",
-    "documentation"
+    "documentation",
+    "technical writing",
+    "help authoring"
+  ],
+  "activationEvents": [
+    "onLanguage:html",
+    "onCommand:flare.previewHtml"
   ],
   "main": "./out/extension.js",
   "contributes": {

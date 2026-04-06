@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatapultVariableSet xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">
+  <Variable Name="ProductName">
+    <Value>Flare Preview</Value>
+  </Variable>
+  <Variable Name="Version">
+    <Value>1.0.0</Value>
+  </Variable>
+  <Variable Name="Vendor" Value="ACME Docs" />
+</CatapultVariableSet>
