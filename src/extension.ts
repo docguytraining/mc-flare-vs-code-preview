@@ -247,6 +247,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const onDidOpen = vscode.workspace.onDidOpenTextDocument((document) => {
     runAuthoringValidationImmediately(document);
+    void detectStaleDismissalsForDocument(document);
   });
 
   const onDidClose = vscode.workspace.onDidCloseTextDocument((document) => {
@@ -306,27 +307,32 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  // Detect stale dismissal entries on every project we already know about.
-  // Logged once at activation as a quiet startup hint; users can act on them
-  // manually until the future "Flare: Prune Dismissals" command lands.
-  const detectStaleDismissalsForOpenDocuments = async (): Promise<void> => {
-    const seenProjects = new Set<string>();
-    for (const document of vscode.workspace.textDocuments) {
-      if (!isFlareHtmlDocument(document)) {
-        continue;
-      }
-      const projectContext = await projectResolver.resolveForFile(document.uri).catch(() => undefined);
-      if (!projectContext) {
-        continue;
-      }
-      if (seenProjects.has(projectContext.projectRoot.fsPath)) {
-        continue;
-      }
-      seenProjects.add(projectContext.projectRoot.fsPath);
-      await dismissalStore.detectStaleEntries(projectContext).catch(() => undefined);
+  // Detect stale dismissal entries per project. A "stale entry" is a
+  // dismissal that points at a topic file which no longer exists on disk
+  // (most commonly because the file was renamed/moved outside VS Code so
+  // the rename handler above never saw it). Each project gets scanned at
+  // most once per activation; the set is closed over so repeat opens in
+  // the same session are cheap.
+  const scannedProjects = new Set<string>();
+  const detectStaleDismissalsForDocument = async (document: vscode.TextDocument): Promise<void> => {
+    if (!isFlareHtmlDocument(document)) {
+      return;
     }
+    const projectContext = await projectResolver.resolveForFile(document.uri).catch(() => undefined);
+    if (!projectContext) {
+      return;
+    }
+    if (scannedProjects.has(projectContext.projectRoot.fsPath)) {
+      return;
+    }
+    scannedProjects.add(projectContext.projectRoot.fsPath);
+    await dismissalStore.detectStaleEntries(projectContext).catch(() => undefined);
   };
-  void detectStaleDismissalsForOpenDocuments();
+
+  // Scan any topic that's already open at activation time.
+  for (const document of vscode.workspace.textDocuments) {
+    void detectStaleDismissalsForDocument(document);
+  }
 
   const inlayHintsRegistration = vscode.languages.registerInlayHintsProvider(
     HTML_DOCUMENT_SELECTOR,

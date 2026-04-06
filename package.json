@@ -30,6 +30,10 @@
     "technical writing",
     "help authoring"
   ],
+  "activationEvents": [
+    "onLanguage:html",
+    "workspaceContains:**/*.flprj"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
