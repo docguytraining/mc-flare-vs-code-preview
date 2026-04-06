@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../../core/flareProjectResolver";
+import { DismissalStore } from "../../diagnostics/dismissalStore";
 import { VariableSuggestionEngine } from "../../language/variableSuggestionEngine";
 
 const FIXTURE_ROOT = path.resolve(__dirname, "../../../test/fixtures/sample-project");
@@ -24,7 +25,11 @@ suite("VariableSuggestionEngine", () => {
 
     const collection = vscode.languages.createDiagnosticCollection("flare-suggestion-test");
     try {
-      const engine = new VariableSuggestionEngine(collection, new FlareProjectResolver());
+      const engine = new VariableSuggestionEngine(
+        collection,
+        new FlareProjectResolver(),
+        new DismissalStore()
+      );
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
       await engine.refresh(document);
 
@@ -56,7 +61,11 @@ suite("VariableSuggestionEngine", () => {
 
     const collection = vscode.languages.createDiagnosticCollection("flare-suggestion-noise");
     try {
-      const engine = new VariableSuggestionEngine(collection, new FlareProjectResolver());
+      const engine = new VariableSuggestionEngine(
+        collection,
+        new FlareProjectResolver(),
+        new DismissalStore()
+      );
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
       await engine.refresh(document);
 

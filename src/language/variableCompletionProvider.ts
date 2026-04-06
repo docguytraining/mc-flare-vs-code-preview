@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { resolveVariables } from "../flare/variableResolver";
-import { readDocumentIgnoreMarkers } from "./variableSuggestionEngine";
+import { DismissalStore } from "../diagnostics/dismissalStore";
 
 const MAX_PREFIX_SCAN = 60;
 const MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION = 3;
@@ -24,7 +24,10 @@ const MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION = 3;
  * are excluded from value-prefix completions.
  */
 export class VariableCompletionProvider implements vscode.CompletionItemProvider {
-  public constructor(private readonly projectResolver: FlareProjectResolver) {}
+  public constructor(
+    private readonly projectResolver: FlareProjectResolver,
+    private readonly dismissalStore: DismissalStore
+  ) {}
 
   public async provideCompletionItems(
     document: vscode.TextDocument,
@@ -57,7 +60,16 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
       return this.buildNameCompletions(variableResult.variables);
     }
 
-    return this.buildValuePrefixCompletions(document, position, linePrefix, variableResult.variables);
+    const sidecarDismissals = await this.dismissalStore
+      .getDismissedVariables(projectContext, document.uri)
+      .catch(() => [] as string[]);
+    return this.buildValuePrefixCompletions(
+      document,
+      position,
+      linePrefix,
+      variableResult.variables,
+      sidecarDismissals
+    );
   }
 
   private buildNameCompletions(variables: Map<string, string>): vscode.CompletionItem[] {
@@ -75,10 +87,11 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
   }
 
   private buildValuePrefixCompletions(
-    document: vscode.TextDocument,
+    _document: vscode.TextDocument,
     position: vscode.Position,
     linePrefix: string,
-    variables: Map<string, string>
+    variables: Map<string, string>,
+    sidecarDismissals: string[]
   ): vscode.CompletionItem[] | undefined {
     // We only want to fire in flowing prose, not inside or right next to an
     // HTML tag. Walk backward from the cursor and bail if the most recent
@@ -93,8 +106,7 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
     }
 
     const projectIgnore = readProjectIgnoreList();
-    const documentIgnore = new Set(readDocumentIgnoreMarkers(document.getText()));
-    const ignoreList = new Set([...projectIgnore, ...documentIgnore]);
+    const ignoreList = new Set([...projectIgnore, ...sidecarDismissals]);
     // Case-sensitive prefix match against the variable values, mirroring the
     // case-sensitivity of the suggestion engine. Authors who type "Trust Pro"
     // get "Trust Protection Foundation" suggested; "trust pro" gets nothing.

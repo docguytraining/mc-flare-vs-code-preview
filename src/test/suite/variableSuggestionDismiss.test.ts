@@ -3,57 +3,83 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../../core/flareProjectResolver";
-import {
-  VariableSuggestionEngine,
-  buildDismissMarkerEdit,
-  readDocumentIgnoreMarkers
-} from "../../language/variableSuggestionEngine";
+import { DismissalStore } from "../../diagnostics/dismissalStore";
+import { VariableSuggestionEngine } from "../../language/variableSuggestionEngine";
 
 const FIXTURE_ROOT = path.resolve(__dirname, "../../../test/fixtures/sample-project");
+const SIDECAR_PATH = path.join(FIXTURE_ROOT, ".vscode", "flare-preview.json");
 
-suite("VariableSuggestionEngine - dismissals + case sensitivity", () => {
-  test("readDocumentIgnoreMarkers parses single and multi-name comments", () => {
-    const text = [
-      "<html>",
-      "  <body>",
-      "    <!-- flare:no-suggest UI.user -->",
-      "    <!-- flare:no-suggest _Variables-Generic.Vendor, _Variables-Generic.ProductName -->",
-      "  </body>",
-      "</html>"
-    ].join("\n");
-    const result = readDocumentIgnoreMarkers(text);
-    assert.deepStrictEqual(
-      result.sort(),
-      ["UI.user", "_Variables-Generic.ProductName", "_Variables-Generic.Vendor"].sort()
-    );
+async function clearSidecar(): Promise<void> {
+  await fs.unlink(SIDECAR_PATH).catch(() => undefined);
+}
+
+suite("VariableSuggestionEngine - sidecar dismissals + case sensitivity", () => {
+  test("DismissalStore round-trips a dismissal through the sidecar file", async () => {
+    await clearSidecar();
+    try {
+      const resolver = new FlareProjectResolver();
+      const topicUri = vscode.Uri.file(path.join(FIXTURE_ROOT, "Content", "Topics", "Overview.htm"));
+      const projectContext = await resolver.resolveForFile(topicUri);
+      assert.ok(projectContext);
+
+      const store = new DismissalStore();
+      assert.deepStrictEqual(await store.getDismissedVariables(projectContext!, topicUri), []);
+
+      await store.dismissForTopic(projectContext!, topicUri, "Vendor");
+      const after = await store.getDismissedVariables(projectContext!, topicUri);
+      assert.deepStrictEqual(after, ["Vendor"]);
+
+      // Persisted JSON shape
+      const raw = await fs.readFile(SIDECAR_PATH, "utf8");
+      const parsed = JSON.parse(raw);
+      assert.deepStrictEqual(parsed, {
+        topicDismissals: {
+          "Content/Topics/Overview.htm": ["Vendor"]
+        }
+      });
+    } finally {
+      await clearSidecar();
+    }
   });
 
-  test("buildDismissMarkerEdit inserts a marker after the opening <body> tag", async () => {
-    const scratchPath = path.join(FIXTURE_ROOT, "Content", "Topics", "__scratch-dismiss.htm");
-    await fs.writeFile(
-      scratchPath,
-      [
-        "<html>",
-        "  <body>",
-        "    <p>Hello world.</p>",
-        "  </body>",
-        "</html>"
-      ].join("\n"),
-      "utf8"
-    );
-
+  test("renameTopic moves an entry to the new path", async () => {
+    await clearSidecar();
     try {
-      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
-      const edit = buildDismissMarkerEdit(document, "UI.user");
-      const applied = await vscode.workspace.applyEdit(edit);
-      assert.ok(applied);
-      const updated = document.getText();
-      assert.ok(updated.includes("<!-- flare:no-suggest UI.user -->"));
-      const markerIndex = updated.indexOf("<!-- flare:no-suggest UI.user -->");
-      const bodyIndex = updated.indexOf("<body>");
-      assert.ok(markerIndex > bodyIndex, "marker should land after the opening <body>");
+      const resolver = new FlareProjectResolver();
+      const topicUri = vscode.Uri.file(path.join(FIXTURE_ROOT, "Content", "Topics", "Overview.htm"));
+      const renamedUri = vscode.Uri.file(path.join(FIXTURE_ROOT, "Content", "Topics", "Renamed.htm"));
+      const projectContext = await resolver.resolveForFile(topicUri);
+      const store = new DismissalStore();
+
+      await store.dismissForTopic(projectContext!, topicUri, "Vendor");
+      await store.renameTopic(projectContext!, topicUri, renamedUri);
+
+      assert.deepStrictEqual(await store.getDismissedVariables(projectContext!, topicUri), []);
+      assert.deepStrictEqual(
+        await store.getDismissedVariables(projectContext!, renamedUri),
+        ["Vendor"]
+      );
     } finally {
-      await fs.unlink(scratchPath).catch(() => undefined);
+      await clearSidecar();
+    }
+  });
+
+  test("detectStaleEntries reports entries pointing at missing files", async () => {
+    await clearSidecar();
+    try {
+      const resolver = new FlareProjectResolver();
+      const topicUri = vscode.Uri.file(path.join(FIXTURE_ROOT, "Content", "Topics", "Overview.htm"));
+      const ghostUri = vscode.Uri.file(path.join(FIXTURE_ROOT, "Content", "Topics", "DoesNotExist.htm"));
+      const projectContext = await resolver.resolveForFile(topicUri);
+      const store = new DismissalStore();
+
+      await store.dismissForTopic(projectContext!, topicUri, "Vendor");
+      await store.dismissForTopic(projectContext!, ghostUri, "Vendor");
+
+      const stale = await store.detectStaleEntries(projectContext!);
+      assert.deepStrictEqual(stale, ["Content/Topics/DoesNotExist.htm"]);
+    } finally {
+      await clearSidecar();
     }
   });
 
@@ -73,12 +99,14 @@ suite("VariableSuggestionEngine - dismissals + case sensitivity", () => {
 
     const collection = vscode.languages.createDiagnosticCollection("flare-case-test");
     try {
-      const engine = new VariableSuggestionEngine(collection, new FlareProjectResolver());
+      const engine = new VariableSuggestionEngine(
+        collection,
+        new FlareProjectResolver(),
+        new DismissalStore()
+      );
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
       await engine.refresh(document);
       const diagnostics = collection.get(document.uri) ?? [];
-      // The fixture defines Vendor = "ACME Docs" (uppercased), so a lowercase
-      // "acme docs" must NOT match under the new case-sensitive rule.
       const hit = diagnostics.find(
         (diagnostic) => diagnostic.code === VariableSuggestionEngine.diagnosticCode
       );
@@ -89,14 +117,14 @@ suite("VariableSuggestionEngine - dismissals + case sensitivity", () => {
     }
   });
 
-  test("inline marker suppresses suggestions for the named variable in that document", async () => {
+  test("a sidecar dismissal suppresses suggestions for the named variable in that topic", async () => {
+    await clearSidecar();
     const scratchPath = path.join(FIXTURE_ROOT, "Content", "Topics", "__scratch-marker.htm");
     await fs.writeFile(
       scratchPath,
       [
         "<html>",
         "  <body>",
-        "    <!-- flare:no-suggest Vendor -->",
         "    <p>Published by ACME Docs.</p>",
         "  </body>",
         "</html>"
@@ -104,16 +132,32 @@ suite("VariableSuggestionEngine - dismissals + case sensitivity", () => {
       "utf8"
     );
 
-    const collection = vscode.languages.createDiagnosticCollection("flare-marker-test");
+    const collection = vscode.languages.createDiagnosticCollection("flare-sidecar-test");
     try {
-      const engine = new VariableSuggestionEngine(collection, new FlareProjectResolver());
+      const resolver = new FlareProjectResolver();
+      const store = new DismissalStore();
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
+      const projectContext = await resolver.resolveForFile(document.uri);
+      assert.ok(projectContext);
+
+      // Without dismissal: ACME Docs should match Vendor.
+      const engine = new VariableSuggestionEngine(collection, resolver, store);
       await engine.refresh(document);
-      const diagnostics = collection.get(document.uri) ?? [];
-      assert.strictEqual(diagnostics.length, 0, "marker should suppress all suggestions for Vendor");
+      const before = collection.get(document.uri) ?? [];
+      assert.ok(
+        before.some((diagnostic) => diagnostic.code === VariableSuggestionEngine.diagnosticCode),
+        "expected a suggestion before the dismissal is recorded"
+      );
+
+      // After dismissal: should be empty.
+      await store.dismissForTopic(projectContext!, document.uri, "Vendor");
+      await engine.refresh(document);
+      const after = collection.get(document.uri) ?? [];
+      assert.strictEqual(after.length, 0, "sidecar dismissal should suppress the suggestion");
     } finally {
       collection.dispose();
       await fs.unlink(scratchPath).catch(() => undefined);
+      await clearSidecar();
     }
   });
 });

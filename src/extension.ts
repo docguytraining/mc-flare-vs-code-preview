@@ -11,6 +11,7 @@ import { VariableCompletionProvider } from "./language/variableCompletionProvide
 import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
 import { XrefCompletionProvider } from "./language/xrefCompletionProvider";
 import { LinkValidator } from "./diagnostics/linkValidator";
+import { DismissalStore } from "./diagnostics/dismissalStore";
 import { registerInsertXrefCommand } from "./commands/insertXrefCommand";
 import {
   DiagnosticEntry,
@@ -33,9 +34,10 @@ export function activate(context: vscode.ExtensionContext): void {
   logInfo("MadCap Flare Preview extension activated.");
   const projectResolver = new FlareProjectResolver();
   const topicIndex = new TopicIndex();
+  const dismissalStore = new DismissalStore();
   const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
   const linkDiagnostics = vscode.languages.createDiagnosticCollection("flare-links");
-  const suggestionEngine = new VariableSuggestionEngine(suggestionDiagnostics, projectResolver);
+  const suggestionEngine = new VariableSuggestionEngine(suggestionDiagnostics, projectResolver, dismissalStore);
   const linkValidator = new LinkValidator(linkDiagnostics, projectResolver);
   const authoringTimers = new Map<string, NodeJS.Timeout>();
 
@@ -279,6 +281,53 @@ export function activate(context: vscode.ExtensionContext): void {
   const onTopicEdited = topicWatcher.onDidChange(onTopicChanged);
   const onTopicDeleted = topicWatcher.onDidDelete(onTopicChanged);
 
+  // When a topic is renamed inside VS Code (Explorer F2, drag-drop, refactor),
+  // migrate any sidecar dismissals so they travel with the file. External
+  // renames (git mv, terminal mv, file manager) don't surface here; the
+  // resulting orphan entries are handled by the stale-entry detector.
+  const onDidRename = vscode.workspace.onDidRenameFiles(async (event) => {
+    for (const { oldUri, newUri } of event.files) {
+      if (!isFlareHtmlPath(oldUri.fsPath) && !isFlareHtmlPath(newUri.fsPath)) {
+        continue;
+      }
+      const projectContext = await projectResolver
+        .resolveForFile(newUri)
+        .catch(() => undefined);
+      if (!projectContext) {
+        continue;
+      }
+      try {
+        await dismissalStore.renameTopic(projectContext, oldUri, newUri);
+      } catch (error) {
+        logError(`Failed to migrate dismissal entry on rename of ${oldUri.fsPath}`, error);
+      }
+      topicIndex.invalidateForPath(oldUri.fsPath);
+      topicIndex.invalidateForPath(newUri.fsPath);
+    }
+  });
+
+  // Detect stale dismissal entries on every project we already know about.
+  // Logged once at activation as a quiet startup hint; users can act on them
+  // manually until the future "Flare: Prune Dismissals" command lands.
+  const detectStaleDismissalsForOpenDocuments = async (): Promise<void> => {
+    const seenProjects = new Set<string>();
+    for (const document of vscode.workspace.textDocuments) {
+      if (!isFlareHtmlDocument(document)) {
+        continue;
+      }
+      const projectContext = await projectResolver.resolveForFile(document.uri).catch(() => undefined);
+      if (!projectContext) {
+        continue;
+      }
+      if (seenProjects.has(projectContext.projectRoot.fsPath)) {
+        continue;
+      }
+      seenProjects.add(projectContext.projectRoot.fsPath);
+      await dismissalStore.detectStaleEntries(projectContext).catch(() => undefined);
+    }
+  };
+  void detectStaleDismissalsForOpenDocuments();
+
   const inlayHintsRegistration = vscode.languages.registerInlayHintsProvider(
     HTML_DOCUMENT_SELECTOR,
     new VariableInlayHintsProvider(projectResolver)
@@ -286,7 +335,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const variableCompletionRegistration = vscode.languages.registerCompletionItemProvider(
     HTML_DOCUMENT_SELECTOR,
-    new VariableCompletionProvider(projectResolver),
+    new VariableCompletionProvider(projectResolver, dismissalStore),
     '"',
     "'"
   );
@@ -307,6 +356,41 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
+
+  const dismissTopicSuggestionRegistration = vscode.commands.registerCommand(
+    "flare.dismissVariableSuggestionInTopic",
+    async (topicUriString?: string, variableName?: string) => {
+      if (typeof topicUriString !== "string" || typeof variableName !== "string") {
+        return;
+      }
+      const topicUri = vscode.Uri.parse(topicUriString);
+      const projectContext = await projectResolver.resolveForFile(topicUri).catch(() => undefined);
+      if (!projectContext) {
+        vscode.window.showWarningMessage(
+          "Flare: cannot dismiss this suggestion because no .flprj project was found above the topic."
+        );
+        return;
+      }
+      try {
+        await dismissalStore.dismissForTopic(projectContext, topicUri, variableName);
+      } catch (error) {
+        logError("Failed to record per-topic dismissal", error);
+        vscode.window.showErrorMessage(
+          `Flare: failed to write dismissal to .vscode/flare-preview.json (${String(error)})`
+        );
+        return;
+      }
+      let document: vscode.TextDocument | undefined;
+      try {
+        document = await vscode.workspace.openTextDocument(topicUri);
+      } catch {
+        document = undefined;
+      }
+      if (document) {
+        runAuthoringValidationImmediately(document);
+      }
+    }
+  );
 
   const dismissSuggestionRegistration = vscode.commands.registerCommand(
     "flare.dismissVariableSuggestion",
@@ -365,7 +449,9 @@ export function activate(context: vscode.ExtensionContext): void {
     xrefCompletionRegistration,
     codeActionRegistration,
     insertXrefRegistration,
+    dismissTopicSuggestionRegistration,
     dismissSuggestionRegistration,
+    onDidRename,
     suggestionDiagnostics,
     linkDiagnostics,
     {
@@ -448,9 +534,13 @@ async function resolveDocument(resource?: vscode.Uri): Promise<vscode.TextDocume
 }
 
 function isFlareHtmlDocument(document: vscode.TextDocument): boolean {
-  const path = document.uri.fsPath.toLowerCase();
+  return isFlareHtmlPath(document.uri.fsPath);
+}
+
+function isFlareHtmlPath(fsPath: string): boolean {
+  const lower = fsPath.toLowerCase();
   for (const extension of FLARE_FILE_EXTENSIONS) {
-    if (path.endsWith(extension)) {
+    if (lower.endsWith(extension)) {
       return true;
     }
   }

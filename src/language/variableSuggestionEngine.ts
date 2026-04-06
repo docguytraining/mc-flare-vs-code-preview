@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { resolveVariables } from "../flare/variableResolver";
+import { DismissalStore } from "../diagnostics/dismissalStore";
 
 const SUGGESTION_CODE = "flare.variable-replacement-suggested";
 const DIAGNOSTIC_SOURCE = "flare";
@@ -26,7 +27,8 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
 
   public constructor(
     private readonly diagnostics: vscode.DiagnosticCollection,
-    private readonly projectResolver: FlareProjectResolver
+    private readonly projectResolver: FlareProjectResolver,
+    private readonly dismissalStore: DismissalStore
   ) {}
 
   public async refresh(document: vscode.TextDocument): Promise<void> {
@@ -48,8 +50,6 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
     const projectIgnoreList = (config.get<string[]>("suggestionIgnoreVariables", []) ?? [])
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
-    const documentIgnoreList = readDocumentIgnoreMarkers(document.getText());
-    const ignoreList = new Set([...projectIgnoreList, ...documentIgnoreList]);
 
     let projectContext;
     try {
@@ -62,6 +62,14 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       this.diagnostics.delete(document.uri);
       return;
     }
+
+    const sidecarDismissals = await this.dismissalStore
+      .getDismissedVariables(projectContext, document.uri)
+      .catch(() => [] as string[]);
+    const ignoreList = new Set<string>([
+      ...projectIgnoreList,
+      ...sidecarDismissals
+    ]);
 
     const variableResult = await resolveVariables(document.getText(), projectContext);
     if (variableResult.variables.size === 0) {
@@ -130,16 +138,20 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       action.edit = edit;
       actions.push(action);
 
-      // Per-topic dismissal: insert an inline `<!-- flare:no-suggest X -->`
-      // marker so this variable stops triggering in *this* topic only.
-      // Lives in the file so it's reviewable, source-controlled, and
-      // visible to teammates without sharing settings.
+      // Per-topic dismissal: write the variable name to the sidecar config
+      // at `<projectRoot>/.vscode/flare-preview.json`. The topic file itself
+      // is never modified; the sidecar is source-controllable and gives a
+      // single place to audit dismissals across the project.
       const topicDismissAction = new vscode.CodeAction(
         `Never suggest '${match.variableName}' in this topic`,
         vscode.CodeActionKind.QuickFix
       );
       topicDismissAction.diagnostics = [diagnostic];
-      topicDismissAction.edit = buildDismissMarkerEdit(document, match.variableName);
+      topicDismissAction.command = {
+        command: "flare.dismissVariableSuggestionInTopic",
+        title: "Dismiss variable suggestion for this topic",
+        arguments: [document.uri.toString(), match.variableName]
+      };
       actions.push(topicDismissAction);
 
       // Project-wide dismissal: persist the variable name to the workspace
@@ -302,58 +314,6 @@ function isInsideSkipRange(start: number, end: number, ranges: Range[]): boolean
     }
   }
   return false;
-}
-
-const NO_SUGGEST_COMMENT_REGEX = /<!--\s*flare:no-suggest\s+([^>]*?)\s*-->/gi;
-
-/**
- * Reads inline `<!-- flare:no-suggest VariableName[, VariableName2] -->`
- * markers from a topic. Multiple comments are allowed; comma-separated
- * names inside a single comment are also supported. The result is the union
- * of every name found.
- */
-export function readDocumentIgnoreMarkers(text: string): string[] {
-  const found: string[] = [];
-  NO_SUGGEST_COMMENT_REGEX.lastIndex = 0;
-  let match = NO_SUGGEST_COMMENT_REGEX.exec(text);
-  while (match) {
-    for (const part of match[1].split(",")) {
-      const name = part.trim();
-      if (name.length > 0) {
-        found.push(name);
-      }
-    }
-    match = NO_SUGGEST_COMMENT_REGEX.exec(text);
-  }
-  return found;
-}
-
-/**
- * Computes a `WorkspaceEdit` that inserts a `<!-- flare:no-suggest X -->`
- * marker into the topic in a sensible spot: just after the opening `<body>`
- * tag if one exists, otherwise at the very top of the document. The marker
- * goes on its own line so it doesn't interfere with surrounding markup.
- */
-export function buildDismissMarkerEdit(
-  document: vscode.TextDocument,
-  variableName: string
-): vscode.WorkspaceEdit {
-  const edit = new vscode.WorkspaceEdit();
-  const text = document.getText();
-  const bodyMatch = /<body\b[^>]*>/i.exec(text);
-  let insertOffset = 0;
-  let leadingNewline = "";
-  if (bodyMatch) {
-    insertOffset = bodyMatch.index + bodyMatch[0].length;
-    leadingNewline = "\n  ";
-  } else {
-    insertOffset = 0;
-    leadingNewline = "";
-  }
-  const insertPosition = document.positionAt(insertOffset);
-  const marker = `${leadingNewline}<!-- flare:no-suggest ${variableName} -->`;
-  edit.insert(document.uri, insertPosition, marker);
-  return edit;
 }
 
 function parseMessage(message: string): { literal: string; variableName: string } | undefined {

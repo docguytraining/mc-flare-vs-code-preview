@@ -35,7 +35,8 @@
     "commands": [
       {
         "command": "flare.previewHtml",
-        "title": "Flare: Preview HTML Topic",
+        "title": "Flare Preview",
+        "shortTitle": "Flare Preview",
         "category": "Flare"
       },
       {
@@ -46,6 +47,12 @@
       {
         "command": "flare.dismissVariableSuggestion",
         "title": "Flare: Dismiss Variable Suggestion",
+        "category": "Flare",
+        "enablement": "false"
+      },
+      {
+        "command": "flare.dismissVariableSuggestionInTopic",
+        "title": "Flare: Dismiss Variable Suggestion (Topic)",
         "category": "Flare",
         "enablement": "false"
       }
