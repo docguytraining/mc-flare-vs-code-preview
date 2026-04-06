@@ -90,3 +90,38 @@ summary {
   color: var(--vscode-editorWarning-foreground);
   border-color: var(--vscode-editorWarning-foreground);
 }
+
+.sanitizer-notice {
+  border: 1px solid var(--vscode-editorWarning-foreground);
+  background: color-mix(in srgb, var(--vscode-editor-background) 90%, var(--vscode-editorWarning-foreground) 10%);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.diagnostic {
+  margin-bottom: 0.25rem;
+}
+
+.diagnostic.severity-error {
+  color: var(--vscode-editorError-foreground);
+}
+
+.diagnostic.severity-warning {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.diagnostic.severity-info {
+  color: var(--vscode-editorInfo-foreground);
+}
+
+.diagnostic .hint {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.diagnostic .source {
+  opacity: 0.6;
+  font-size: 0.85em;
+}

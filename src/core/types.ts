@@ -21,8 +21,29 @@ export interface StylesheetBundle {
   missingStylesheets: string[];
 }
 
+export type DiagnosticSeverity = "info" | "warning" | "error";
+
+export type DiagnosticCode =
+  | "project-missing"
+  | "variable-unresolved"
+  | "stylesheet-missing"
+  | "snippet-missing"
+  | "unsupported-tag"
+  | "transform-failed"
+  | "resolve-failed"
+  | "sanitize-failed"
+  | "render-failed";
+
+export interface DiagnosticEntry {
+  code: DiagnosticCode;
+  severity: DiagnosticSeverity;
+  message: string;
+  hint?: string;
+  source?: string;
+}
+
 export interface PreviewDiagnostics {
-  warnings: string[];
+  entries: DiagnosticEntry[];
 }
 
 export interface TransformResult {

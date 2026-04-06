@@ -1,12 +1,15 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
+  DiagnosticEntry,
   FlareProjectContext,
   PreviewDiagnostics,
   StylesheetBundle,
   TransformResult,
   VariableResolutionResult
 } from "../core/types";
+import { sanitizeCss, sanitizeHtml } from "../security/contentSanitizer";
+import { logWarning } from "../core/logger";
 import { RenderCoordinator } from "./renderCoordinator";
 
 const PANEL_VIEW_TYPE = "flare.previewPanel";
@@ -128,15 +131,31 @@ export class FlarePreviewPanel {
       vscode.Uri.joinPath(this.extensionUri, "media", "preview.css")
     );
 
-    // Deterministic stylesheet order: topic-linked stylesheets first (as they
-    // appeared on the topic), then project-level stylesheets in the order the
-    // resolver discovered them.
-    const inlinedCss = previewData.stylesheetBundle.inlinedCss
-      .map((entry) => `\n/* ${escapeHtml(entry.source.fsPath)} */\n${entry.content}`)
-      .join("\n");
+    // Deterministic stylesheet order preserved from the resolver; each block
+    // is scrubbed of external url()/@import references before being inlined.
+    const inlinedCssParts: string[] = [];
+    let externalCssRefsBlocked = 0;
+    for (const entry of previewData.stylesheetBundle.inlinedCss) {
+      const scrubbed = sanitizeCss(entry.content);
+      externalCssRefsBlocked += scrubbed.removed;
+      inlinedCssParts.push(`\n/* ${escapeHtml(entry.source.fsPath)} */\n${scrubbed.css}`);
+    }
+    if (externalCssRefsBlocked > 0) {
+      logWarning(
+        `Blocked ${externalCssRefsBlocked} external CSS reference(s) in stylesheets for ${document.uri.fsPath}.`
+      );
+    }
+    const inlinedCss = inlinedCssParts.join("\n");
+
+    const sanitizedTopic = sanitizeHtml(previewData.transformResult.html);
+    if (sanitizedTopic.removed.length > 0) {
+      logWarning(
+        `Sanitizer removed ${sanitizedTopic.removed.join(", ")} from ${document.uri.fsPath}.`
+      );
+    }
 
     const rewrittenTopicHtml = rewriteLocalResourceUrls(
-      previewData.transformResult.html,
+      sanitizedTopic.html,
       document.uri,
       previewData.projectContext,
       webview
@@ -144,7 +163,8 @@ export class FlarePreviewPanel {
 
     const summary = this.renderSummary(previewData);
     const statusBar = this.renderStatusBar(previewData);
-    const diagnosticList = this.renderDiagnostics(previewData.diagnostics.warnings);
+    const diagnosticList = this.renderDiagnostics(previewData.diagnostics.entries);
+    const sanitizerNotice = this.renderSanitizerNotice(sanitizedTopic.removed);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -152,7 +172,7 @@ export class FlarePreviewPanel {
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src ${cspSource} https: data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource} data:; script-src 'nonce-${nonce}';"
+      content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource} data:; script-src 'nonce-${nonce}'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MadCap Flare Preview</title>
@@ -165,6 +185,7 @@ export class FlarePreviewPanel {
       ${statusBar}
       <p class="file-path">${escapeHtml(document.uri.fsPath)}</p>
     </header>
+    ${sanitizerNotice}
     <section class="summary">${summary}</section>
     <section class="diagnostics">${diagnosticList}</section>
     <main>
@@ -180,19 +201,28 @@ export class FlarePreviewPanel {
 
   private renderStatusBar(previewData: PreviewData): string {
     const projectFile = previewData.projectContext?.projectFile.fsPath ?? "No Flare project detected";
-    const warningCount = previewData.diagnostics.warnings.length;
+    const errorCount = previewData.diagnostics.entries.filter((entry) => entry.severity === "error").length;
+    const warningCount = previewData.diagnostics.entries.filter((entry) => entry.severity === "warning").length;
     const renderedAt = this.lastRenderedAt
       ? this.lastRenderedAt.toLocaleTimeString()
       : "pending";
-    const warningClass = warningCount > 0 ? "warn" : "ok";
+    const warningClass = errorCount > 0 ? "warn" : warningCount > 0 ? "warn" : "ok";
 
     return `
       <ul class="status-bar">
         <li><strong>Last render:</strong> ${escapeHtml(renderedAt)}</li>
         <li><strong>Project:</strong> ${escapeHtml(projectFile)}</li>
         <li class="${warningClass}"><strong>Warnings:</strong> ${warningCount}</li>
+        <li class="${errorCount > 0 ? "warn" : "ok"}"><strong>Errors:</strong> ${errorCount}</li>
       </ul>
     `;
+  }
+
+  private renderSanitizerNotice(removed: string[]): string {
+    if (removed.length === 0) {
+      return "";
+    }
+    return `<p class="sanitizer-notice">Preview sanitizer removed: ${escapeHtml(removed.join(", "))}.</p>`;
   }
 
   private renderSummary(previewData: PreviewData): string {
@@ -216,13 +246,21 @@ export class FlarePreviewPanel {
     `;
   }
 
-  private renderDiagnostics(warnings: string[]): string {
-    if (warnings.length === 0) {
-      return "<h2>Diagnostics</h2><p class=\"ok\">No warnings.</p>";
+  private renderDiagnostics(entries: DiagnosticEntry[]): string {
+    if (entries.length === 0) {
+      return "<h2>Diagnostics</h2><p class=\"ok\">No diagnostics.</p>";
     }
 
-    const items = warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("\n");
-    return `<h2>Diagnostics</h2><ul class=\"warnings\">${items}</ul>`;
+    const items = entries
+      .map((entry) => {
+        const hintMarkup = entry.hint ? ` <em class="hint">${escapeHtml(entry.hint)}</em>` : "";
+        const sourceMarkup = entry.source
+          ? ` <span class="source">(${escapeHtml(entry.source)})</span>`
+          : "";
+        return `<li class="diagnostic severity-${entry.severity}" data-code="${escapeHtml(entry.code)}"><strong>[${escapeHtml(entry.severity)}]</strong> ${escapeHtml(entry.message)}${hintMarkup}${sourceMarkup}</li>`;
+      })
+      .join("\n");
+    return `<h2>Diagnostics</h2><ul class="warnings">${items}</ul>`;
   }
 }
 
@@ -231,13 +269,23 @@ function buildLocalResourceRoots(
   document: vscode.TextDocument
 ): vscode.Uri[] {
   const roots: vscode.Uri[] = [vscode.Uri.joinPath(extensionUri, "media")];
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    roots.push(folder.uri);
+  const seen = new Set<string>(roots.map((root) => root.fsPath));
+
+  const addRoot = (uri: vscode.Uri): void => {
+    if (!seen.has(uri.fsPath)) {
+      seen.add(uri.fsPath);
+      roots.push(uri);
+    }
+  };
+
+  // Only expose the enclosing workspace folder, not every folder, so the
+  // webview cannot reach into unrelated projects.
+  const owningFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+  if (owningFolder) {
+    addRoot(owningFolder.uri);
   }
-  const documentFolder = vscode.Uri.file(path.dirname(document.uri.fsPath));
-  if (!roots.some((root) => root.fsPath === documentFolder.fsPath)) {
-    roots.push(documentFolder);
-  }
+
+  addRoot(vscode.Uri.file(path.dirname(document.uri.fsPath)));
   return roots;
 }
 

@@ -4,7 +4,9 @@ import { FlarePreviewPanel } from "./preview/previewPanel";
 import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
+import { disposeLogger, logError, logInfo } from "./core/logger";
 import {
+  DiagnosticEntry,
   FlareProjectContext,
   PreviewDiagnostics,
   StylesheetBundle,
@@ -16,6 +18,7 @@ const FLARE_PREVIEW_COMMAND = "flare.previewHtml";
 const FLARE_FILE_EXTENSIONS = new Set([".htm", ".html"]);
 
 export function activate(context: vscode.ExtensionContext): void {
+  logInfo("MadCap Flare Preview extension activated.");
   const projectResolver = new FlareProjectResolver();
 
   const buildPreviewData = async (
@@ -27,43 +30,114 @@ export function activate(context: vscode.ExtensionContext): void {
     transformResult: TransformResult;
     diagnostics: PreviewDiagnostics;
   }> => {
-    const projectContext = await projectResolver.resolveForFile(document.uri);
+    const entries: DiagnosticEntry[] = [];
     const htmlContent = document.getText();
-    const variableResult = await resolveVariables(htmlContent, projectContext);
-    const stylesheetBundle = await resolveStylesheets(document, htmlContent, projectContext);
-    const transformResult = await transformMadcapContent(htmlContent, {
-      variables: variableResult.variables,
-      projectContext,
-      currentDocument: document.uri
-    });
 
-    const warnings: string[] = [];
-    if (!projectContext) {
-      warnings.push("No .flprj file found by walking up from this topic.");
+    let projectContext: FlareProjectContext | undefined;
+    try {
+      projectContext = await projectResolver.resolveForFile(document.uri);
+    } catch (error) {
+      logError("Project resolution failed", error);
+      entries.push({
+        code: "resolve-failed",
+        severity: "error",
+        message: "Failed to resolve Flare project context.",
+        hint: "Check the Flare Preview output channel for details."
+      });
     }
 
-    if (variableResult.unresolvedReferences.length > 0) {
-      warnings.push(
-        `Unresolved variables: ${variableResult.unresolvedReferences
-          .slice(0, 10)
-          .join(", ")}${
-          variableResult.unresolvedReferences.length > 10 ? " ..." : ""
-        }`
-      );
+    if (!projectContext) {
+      entries.push({
+        code: "project-missing",
+        severity: "warning",
+        message: "No .flprj file was found by walking up from this topic.",
+        hint: "Open this file from within a Flare project folder to enable variable and stylesheet resolution."
+      });
+    }
+
+    let variableResult: VariableResolutionResult = {
+      variables: new Map<string, string>(),
+      unresolvedReferences: []
+    };
+    try {
+      variableResult = await resolveVariables(htmlContent, projectContext);
+    } catch (error) {
+      logError("Variable resolution failed", error);
+      entries.push({
+        code: "resolve-failed",
+        severity: "error",
+        message: "Variable resolver threw an exception; variable substitution may be incomplete.",
+        hint: "Check the Flare Preview output channel for details."
+      });
+    }
+
+    for (const unresolved of variableResult.unresolvedReferences) {
+      entries.push({
+        code: "variable-unresolved",
+        severity: "warning",
+        message: `Unresolved variable '${unresolved}'.`,
+        hint: "Define the variable in a .flvar file under the project VariableSets folder.",
+        source: unresolved
+      });
+    }
+
+    let stylesheetBundle: StylesheetBundle = {
+      stylesheets: [],
+      inlinedCss: [],
+      missingStylesheets: []
+    };
+    try {
+      stylesheetBundle = await resolveStylesheets(document, htmlContent, projectContext);
+    } catch (error) {
+      logError("Stylesheet resolution failed", error);
+      entries.push({
+        code: "resolve-failed",
+        severity: "error",
+        message: "Stylesheet resolver threw an exception; styling may be incomplete.",
+        hint: "Check the Flare Preview output channel for details."
+      });
     }
 
     for (const missingStylesheet of stylesheetBundle.missingStylesheets) {
-      warnings.push(`Missing stylesheet: ${missingStylesheet}`);
+      entries.push({
+        code: "stylesheet-missing",
+        severity: "warning",
+        message: `Stylesheet could not be read: ${missingStylesheet}`,
+        hint: "Verify the file exists and the referenced path is correct.",
+        source: missingStylesheet
+      });
     }
 
-    warnings.push(...transformResult.warnings);
+    let transformResult: TransformResult = {
+      html: escapeHtmlContent(htmlContent),
+      warnings: []
+    };
+    try {
+      transformResult = await transformMadcapContent(htmlContent, {
+        variables: variableResult.variables,
+        projectContext,
+        currentDocument: document.uri
+      });
+    } catch (error) {
+      logError("MadCap transform pipeline failed", error);
+      entries.push({
+        code: "transform-failed",
+        severity: "error",
+        message: "MadCap transform pipeline failed; showing escaped source as fallback.",
+        hint: "Check the Flare Preview output channel for details."
+      });
+    }
+
+    for (const warning of transformResult.warnings) {
+      entries.push(classifyTransformWarning(warning));
+    }
 
     return {
       projectContext,
       variableResult,
       stylesheetBundle,
       transformResult,
-      diagnostics: { warnings }
+      diagnostics: { entries }
     };
   };
 
@@ -137,7 +211,54 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // No cleanup required yet.
+  disposeLogger();
+}
+
+function escapeHtmlContent(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function classifyTransformWarning(warning: string): DiagnosticEntry {
+  const base: Pick<DiagnosticEntry, "severity" | "source"> = {
+    severity: "warning",
+    source: warning
+  };
+
+  if (warning.toLowerCase().startsWith("unsupported madcap tag")) {
+    return {
+      ...base,
+      code: "unsupported-tag",
+      message: warning,
+      hint: "The tag will render as a placeholder marker until a handler is added."
+    };
+  }
+
+  if (warning.toLowerCase().includes("snippet")) {
+    return {
+      ...base,
+      code: "snippet-missing",
+      message: warning,
+      hint: "Verify the snippet path relative to the topic or project root."
+    };
+  }
+
+  if (warning.toLowerCase().includes("variable")) {
+    return {
+      ...base,
+      code: "variable-unresolved",
+      message: warning,
+      hint: "Add the variable to a .flvar file or correct the reference."
+    };
+  }
+
+  return {
+    ...base,
+    code: "transform-failed",
+    message: warning
+  };
 }
 
 async function resolveDocument(resource?: vscode.Uri): Promise<vscode.TextDocument | undefined> {

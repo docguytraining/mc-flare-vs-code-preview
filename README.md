@@ -8,7 +8,7 @@ The goal is to render elements that standard HTML previewers skip because they a
 
 This repository is in active development.
 
-Phase 4 core checklist is complete.
+Phase 5 core checklist is complete.
 
 Implemented so far:
 - TypeScript VS Code extension scaffold
@@ -22,10 +22,15 @@ Implemented so far:
 - MadCap transform pipeline for variables, conditional blocks, drop-down/expandable regions, and snippets
 - Unsupported MadCap tag markers and transform warnings in preview
 - Render coordinator with save/dependency refresh, debounced typing refresh, single-in-flight renders, and 10 s coalescing safeguard
-- Local resource rewriting through webview URIs and baseline CSP with nonced script policy
-- Preview status bar showing last render time, project path, and warning count
+- Local resource rewriting through webview URIs
+- Strict CSP with nonced script policy, workspace-scoped `localResourceRoots`, and blocked external image/connect/frame/object/form sources
+- Regex-based HTML sanitizer that strips `<script>`, `<iframe>`, `<object>`, inline `<style>`, meta refresh, inline event handlers, and `javascript:`/non-image `data:` URLs
+- CSS sanitizer that blocks external `@import` and `url(http(s)://...)` references
+- Structured diagnostics (code, severity, hint) for missing variables, stylesheets, snippets, unsupported tags, and pipeline failures
+- Error boundaries around project resolution, variable resolution, stylesheet resolution, and MadCap transform stages with a fallback escaped-source render
+- Output channel logging for preview failures and sanitizer activity
 
-Next focus areas are Phase 5 security hardening (HTML sanitization, strict CSP, structured diagnostics) and Phase 6 validation.
+Next focus area is Phase 6 validation and publish readiness.
 
 ## Planned Capability
 
