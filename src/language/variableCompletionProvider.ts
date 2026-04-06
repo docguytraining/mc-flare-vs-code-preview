@@ -3,8 +3,9 @@ import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { resolveVariables } from "../flare/variableResolver";
 import { DismissalStore } from "../diagnostics/dismissalStore";
 
-const MAX_PREFIX_SCAN = 60;
+const MAX_PREFIX_SCAN = 120;
 const MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION = 3;
+const MAX_PREFIX_WORDS = 8;
 
 /**
  * Completion provider for Flare variables. Two modes:
@@ -100,18 +101,19 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
       return undefined;
     }
 
-    const prefixInfo = extractValuePrefix(linePrefix, position);
-    if (!prefixInfo) {
+    const candidates = extractPrefixCandidates(linePrefix, position);
+    if (candidates.length === 0) {
       return undefined;
     }
 
     const projectIgnore = readProjectIgnoreList();
     const ignoreList = new Set([...projectIgnore, ...sidecarDismissals]);
-    // Case-sensitive prefix match against the variable values, mirroring the
-    // case-sensitivity of the suggestion engine. Authors who type "Trust Pro"
-    // get "Trust Protection Foundation" suggested; "trust pro" gets nothing.
-    const exactPrefix = prefixInfo.text;
 
+    // For each variable, find the longest candidate prefix (candidates are
+    // pre-sorted longest first) that matches the start of its value. This
+    // means typing "Trust Pro" in "…love Trust Pro|" still matches the full
+    // "Trust Protection Foundation" even though the bare last word "Pro"
+    // would also be a candidate.
     const items: vscode.CompletionItem[] = [];
     const seenVariableNames = new Set<string>();
     for (const [name, value] of variables.entries()) {
@@ -126,15 +128,23 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
         continue;
       }
       const trimmedValue = value.trim();
-      if (trimmedValue.length < exactPrefix.length) {
-        continue;
+
+      let matchedCandidate: PrefixCandidate | undefined;
+      for (const candidate of candidates) {
+        if (trimmedValue.length < candidate.text.length) {
+          continue;
+        }
+        if (trimmedValue.startsWith(candidate.text)) {
+          matchedCandidate = candidate;
+          break;
+        }
       }
-      if (!trimmedValue.startsWith(exactPrefix)) {
+      if (!matchedCandidate) {
         continue;
       }
       seenVariableNames.add(name);
 
-      const replaceRange = new vscode.Range(prefixInfo.start, position);
+      const replaceRange = new vscode.Range(matchedCandidate.start, position);
       const item = new vscode.CompletionItem(
         { label: trimmedValue, description: name },
         vscode.CompletionItemKind.Snippet
@@ -175,21 +185,37 @@ function isInsideTag(linePrefix: string): boolean {
   return false;
 }
 
-interface PrefixInfo {
+interface PrefixCandidate {
   text: string;
   start: vscode.Position;
 }
 
 /**
- * Walks backward from the cursor to collect the "prose prefix" being typed.
- * Stops at any character that can't be part of flowing text (HTML brackets,
- * quote marks, newlines). Returns undefined when the prefix is too short to
- * justify a value-prefix completion.
+ * Walks backward from the cursor to collect prose being typed, then returns
+ * a set of candidate prefixes of increasing length:
+ *
+ *   "…and our product is CyberArk promises you will love Cyber|"
+ *     → ["Cyber", "love Cyber", "will love Cyber", "you will love Cyber", …]
+ *
+ *   "<p>Trust Pro|"
+ *     → ["Pro", "Trust Pro"]
+ *
+ * Candidates are returned **longest first** so callers can prefer longer
+ * matches over shorter ones (so typing "Trust Pro" lands on "Trust
+ * Protection Foundation" instead of a shorter "Pro…" variable).
+ *
+ * Stops collecting at the last HTML bracket, quote, or newline — those are
+ * boundaries that can't be part of flowing prose. Excludes candidates that
+ * are shorter than `MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION`, end in
+ * whitespace, or contain no letters.
  */
-function extractValuePrefix(linePrefix: string, position: vscode.Position): PrefixInfo | undefined {
-  const start = Math.max(0, linePrefix.length - MAX_PREFIX_SCAN);
+function extractPrefixCandidates(
+  linePrefix: string,
+  position: vscode.Position
+): PrefixCandidate[] {
+  const scanStart = Math.max(0, linePrefix.length - MAX_PREFIX_SCAN);
   let cut = linePrefix.length;
-  for (let i = linePrefix.length - 1; i >= start; i -= 1) {
+  for (let i = linePrefix.length - 1; i >= scanStart; i -= 1) {
     const ch = linePrefix.charAt(i);
     if (ch === "<" || ch === ">" || ch === '"' || ch === "'") {
       cut = i + 1;
@@ -197,31 +223,56 @@ function extractValuePrefix(linePrefix: string, position: vscode.Position): Pref
     }
     cut = i;
   }
-  let text = linePrefix.slice(cut).replace(/^\s+/, "");
-  // If we ate the entire prefix, the start should be cut + leading-trim count.
-  const leadingTrimmed = linePrefix.slice(cut).length - text.length;
-  if (text.length < MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION) {
-    return undefined;
+
+  const rawSegment = linePrefix.slice(cut);
+  // Don't trigger if the user just finished a word (trailing whitespace).
+  if (/\s$/.test(rawSegment) || rawSegment.length === 0) {
+    return [];
   }
-  if (!/[A-Za-z]/.test(text)) {
-    return undefined;
+
+  // Split on ASCII whitespace while remembering each word's start offset
+  // relative to the full line, so we can reconstruct the replace range.
+  interface Word {
+    text: string;
+    startOffset: number;
   }
-  // Don't trigger if the prefix ends in pure whitespace — VS Code already
-  // shows completions on word characters; whitespace usually means "I just
-  // finished a word".
-  if (/\s$/.test(text)) {
-    return undefined;
+  const words: Word[] = [];
+  const wordRegex = /\S+/g;
+  let match = wordRegex.exec(rawSegment);
+  while (match) {
+    words.push({ text: match[0], startOffset: cut + match.index });
+    match = wordRegex.exec(rawSegment);
   }
-  text = text.trimEnd();
-  const startCharacter = position.character - text.length;
-  if (startCharacter < 0) {
-    return undefined;
+  if (words.length === 0) {
+    return [];
   }
-  void leadingTrimmed;
-  return {
-    text,
-    start: new vscode.Position(position.line, startCharacter)
-  };
+
+  const candidates: PrefixCandidate[] = [];
+  const maxCandidates = Math.min(words.length, MAX_PREFIX_WORDS);
+  // Build progressively longer candidates: last word, last two, last three…
+  for (let take = 1; take <= maxCandidates; take += 1) {
+    const firstIndex = words.length - take;
+    const first = words[firstIndex];
+    const text = linePrefix.slice(first.startOffset);
+    if (text.length < MIN_PREFIX_LENGTH_FOR_VALUE_COMPLETION) {
+      continue;
+    }
+    if (!/[A-Za-z]/.test(text)) {
+      continue;
+    }
+    const startCharacter = position.character - text.length;
+    if (startCharacter < 0) {
+      continue;
+    }
+    candidates.push({
+      text,
+      start: new vscode.Position(position.line, startCharacter)
+    });
+  }
+
+  // Return longest-first so callers that want to prefer longer matches can
+  // iterate in order and break on the first hit.
+  return candidates.reverse();
 }
 
 function readProjectIgnoreList(): Set<string> {
