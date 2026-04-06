@@ -5,7 +5,7 @@ import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
 import { TopicIndex } from "./flare/topicIndex";
-import { disposeLogger, logError, logInfo } from "./core/logger";
+import { disposeLogger, logError, logInfo, showLogChannel } from "./core/logger";
 import { VariableInlayHintsProvider } from "./language/variableInlayHintsProvider";
 import { VariableCompletionProvider } from "./language/variableCompletionProvider";
 import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
@@ -312,7 +312,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // (most commonly because the file was renamed/moved outside VS Code so
   // the rename handler above never saw it). Each project gets scanned at
   // most once per activation; the set is closed over so repeat opens in
-  // the same session are cheap.
+  // the same session are cheap. When stale entries are found, surface a
+  // one-shot warning notification with a "Show details" button that opens
+  // the output channel — the raw warning line is still written to the
+  // channel for audit either way.
   const scannedProjects = new Set<string>();
   const detectStaleDismissalsForDocument = async (document: vscode.TextDocument): Promise<void> => {
     if (!isFlareHtmlDocument(document)) {
@@ -326,7 +329,20 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     scannedProjects.add(projectContext.projectRoot.fsPath);
-    await dismissalStore.detectStaleEntries(projectContext).catch(() => undefined);
+    const stale = await dismissalStore
+      .detectStaleEntries(projectContext)
+      .catch(() => [] as string[]);
+    if (stale.length === 0) {
+      return;
+    }
+
+    const message = stale.length === 1
+      ? `Flare: 1 stale dismissal entry in .vscode/flare-preview.json (${stale[0]} no longer exists).`
+      : `Flare: ${stale.length} stale dismissal entries in .vscode/flare-preview.json (topic paths no longer exist).`;
+    const choice = await vscode.window.showWarningMessage(message, "Show details");
+    if (choice === "Show details") {
+      showLogChannel();
+    }
   };
 
   // Scan any topic that's already open at activation time.

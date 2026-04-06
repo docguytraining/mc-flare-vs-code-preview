@@ -30,6 +30,10 @@ export function logError(message: string, error?: unknown): void {
   }
 }
 
+export function showLogChannel(preserveFocus = true): void {
+  getChannel().show(preserveFocus);
+}
+
 export function disposeLogger(): void {
   channel?.dispose();
   channel = undefined;
