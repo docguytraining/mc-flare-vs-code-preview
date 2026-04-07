@@ -66,6 +66,32 @@
         "title": "Dismiss Variable Suggestion (Topic)",
         "category": "Flare Toolkit",
         "enablement": "false"
+      },
+      {
+        "command": "flare.pickPreviewTarget",
+        "title": "Pick Preview Target",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.validateAllTopics",
+        "title": "Validate All Topics",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.findStaleReferences",
+        "title": "Find Stale References",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.renameConditionTag",
+        "title": "Rename Condition Tag…",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.openConditionInTopic",
+        "title": "Open Condition Occurrence",
+        "category": "Flare Toolkit",
+        "enablement": "false"
       }
     ],
     "menus": {
@@ -133,6 +159,16 @@
           "type": "boolean",
           "default": true,
           "description": "Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics."
+        },
+        "flarePreview.showConditionBadges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a small pill badge inside every conditional element in the preview, listing the MadCap:conditions tags that gate it."
+        },
+        "flarePreview.showConditionGutter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a colored square in the editor gutter on every line that contains a MadCap:conditions or MadCap:conditionTagExpression attribute. The color is taken from the matching .flcts entry's BackgroundColor."
         }
       }
     }

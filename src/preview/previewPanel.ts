@@ -3,7 +3,9 @@ import * as vscode from "vscode";
 import {
   DiagnosticEntry,
   FlareProjectContext,
+  PreviewConditionInventory,
   PreviewDiagnostics,
+  PreviewTargetInfo,
   StylesheetBundle,
   TransformResult,
   VariableResolutionResult
@@ -23,6 +25,9 @@ type PreviewData = {
   stylesheetBundle: StylesheetBundle;
   transformResult: TransformResult;
   diagnostics: PreviewDiagnostics;
+  conditions: PreviewConditionInventory;
+  availableTargets: PreviewTargetInfo[];
+  activeTargetId: string;
 };
 
 type PreviewDataResolver = (document: vscode.TextDocument) => Promise<PreviewData>;
@@ -52,6 +57,18 @@ export class FlarePreviewPanel {
     this.panel.webview.onDidReceiveMessage((message) => {
       if (message?.command === "openTopic" && typeof message.href === "string") {
         void this.handleOpenTopic(message.href);
+      } else if (message?.command === "pickTarget") {
+        void vscode.commands.executeCommand("flare.pickPreviewTarget", this.currentDocumentUri);
+      } else if (
+        message?.command === "openConditionInTopic" &&
+        typeof message.tag === "string" &&
+        this.currentDocumentUri
+      ) {
+        void vscode.commands.executeCommand(
+          "flare.openConditionInTopic",
+          this.currentDocumentUri,
+          message.tag
+        );
       }
     });
   }
@@ -214,7 +231,9 @@ export class FlarePreviewPanel {
     );
 
     const summary = this.renderSummary(previewData);
+    const conditionsSection = this.renderConditions(previewData);
     const statusBar = this.renderStatusBar(previewData);
+    const targetPicker = this.renderTargetPicker(previewData);
     const diagnosticList = this.renderDiagnostics(previewData.diagnostics.entries);
     const sanitizerNotice = this.renderSanitizerNotice(sanitizedTopic.removed);
 
@@ -235,10 +254,12 @@ export class FlarePreviewPanel {
     <header class="flare-preview-header">
       <h1>MadCap Flare Preview</h1>
       ${statusBar}
+      ${targetPicker}
       <p class="file-path">${escapeHtml(document.uri.fsPath)}</p>
     </header>
     ${sanitizerNotice}
     <section class="flare-preview-summary">${summary}</section>
+    <section class="flare-preview-conditions">${conditionsSection}</section>
     <section class="flare-preview-diagnostics">${diagnosticList}</section>
     <main>
       <section class="flare-preview-rendered">
@@ -250,9 +271,26 @@ export class FlarePreviewPanel {
       (function () {
         const vscode = acquireVsCodeApi();
         document.addEventListener("click", function (event) {
-          const anchor = event.target instanceof Element
-            ? event.target.closest("a.flare-xref")
-            : null;
+          const target = event.target instanceof Element ? event.target : null;
+          if (!target) {
+            return;
+          }
+          const picker = target.closest("button.flare-target-picker");
+          if (picker) {
+            event.preventDefault();
+            vscode.postMessage({ command: "pickTarget" });
+            return;
+          }
+          const conditionRow = target.closest("button.flare-condition-row");
+          if (conditionRow) {
+            event.preventDefault();
+            const tag = conditionRow.getAttribute("data-tag");
+            if (tag) {
+              vscode.postMessage({ command: "openConditionInTopic", tag: tag });
+            }
+            return;
+          }
+          const anchor = target.closest("a.flare-xref");
           if (!anchor) {
             return;
           }
@@ -313,6 +351,63 @@ export class FlarePreviewPanel {
         <li><strong>Discovered Stylesheets:</strong> ${stylesheetCount}</li>
         <li><strong>Transform Warnings:</strong> ${transformWarningCount}</li>
       </ul>
+    `;
+  }
+
+  private renderTargetPicker(previewData: PreviewData): string {
+    if (previewData.availableTargets.length === 0) {
+      return "";
+    }
+    const active = previewData.availableTargets.find(
+      (target) => target.id === previewData.activeTargetId
+    );
+    const label = active?.displayName ?? "Show everything";
+    return `
+      <div class="flare-target-picker-row">
+        <span class="flare-target-label"><strong>Target:</strong> ${escapeHtml(label)}</span>
+        <button class="flare-target-picker" type="button">Change…</button>
+      </div>
+    `;
+  }
+
+  private renderConditions(previewData: PreviewData): string {
+    const elementCounts = [...previewData.conditions.elementConditionCounts.entries()];
+    const snippetCounts = [...previewData.conditions.snippetConditionCounts.entries()];
+
+    if (elementCounts.length === 0 && snippetCounts.length === 0) {
+      return "<h2>Conditions</h2><p class=\"ok\">No condition tags referenced in this topic.</p>";
+    }
+
+    const renderColumn = (
+      title: string,
+      entries: Array<[string, number]>
+    ): string => {
+      if (entries.length === 0) {
+        return `<div class="condition-column"><h3>${escapeHtml(title)}</h3><p class="ok">None.</p></div>`;
+      }
+      entries.sort((a, b) => a[0].localeCompare(b[0]));
+      const items = entries
+        .map(([name, count]) => {
+          const safeTag = escapeHtml(name);
+          return `<li><button type="button" class="flare-condition-row" data-tag="${safeTag}" title="Jump to this condition in the topic"><code>${safeTag}</code> <span class="condition-count">(${count})</span></button></li>`;
+        })
+        .join("");
+      return `<div class="condition-column"><h3>${escapeHtml(title)}</h3><ul>${items}</ul></div>`;
+    };
+
+    const hidden = previewData.conditions.hiddenCount;
+    const hiddenNote =
+      hidden > 0
+        ? `<p class="condition-hidden-note">Hidden by active target: ${hidden} element(s).</p>`
+        : "";
+
+    return `
+      <h2>Conditions</h2>
+      ${hiddenNote}
+      <div class="condition-grid">
+        ${renderColumn("Element conditions", elementCounts)}
+        ${renderColumn("Snippet conditions", snippetCounts)}
+      </div>
     `;
   }
 

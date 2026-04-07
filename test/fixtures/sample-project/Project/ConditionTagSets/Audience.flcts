@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatapultConditionTagSet>
+  <ConditionTag Name="Admin" BackgroundColor="#9c27b0" Comment="Admin-only steps." />
+  <ConditionTag Name="EndUser" BackgroundColor="#03a9f4" />
+</CatapultConditionTagSet>

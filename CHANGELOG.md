@@ -2,6 +2,46 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [Unreleased] — Phase 9
+
+Phase 9 adds five connected pieces of authoring support: condition tag indexing, conditional text rendering with a target picker, condition autocomplete and validation, snippet condition discovery, and cross-project rename references. Plus a `Validate All Topics` command and a `Find Stale References` command.
+
+### Added — conditional text and target picker
+- **Condition tag set index** (`9.1`). Walks `Project/ConditionTagSets` for `.flcts` files and builds a per-project index keyed by `<setName>.<tagName>`. Each entry records color, comment, and source file. The index is invalidated when a `.flcts` file changes.
+- **Conditional text rendering** (`9.2`). The transform pipeline now parses `MadCap:conditions=` on every element and hides elements that the active target's expression excludes. Supports `include[A or B]`, `exclude[A and B]`, nested grouping, and `AND` between top-level clauses. Hidden elements are stripped from the rendered output but counted in the discovery summary so authors can see they exist.
+- **Target picker** (`9.2`). New `Flare Toolkit: Pick Preview Target` command. The preview header gains a "Target" label and a "Change…" button that lists every discovered `.fltar` target plus the synthetic *Show everything* and *(Project default)* entries. Selection persists per project root in `.vscode/flare-preview.json` under a new `previewTarget` key (alongside the existing `topicDismissals`).
+- **Condition badges** (`9.2`). New `flarePreview.showConditionBadges` setting injects a small `madcap-condition-badge` pill inside every conditional element so authors can see at a glance which tag gates each block. Off by default.
+- **Condition autocomplete** (`9.3`). Completion provider for `MadCap:conditions=` and `MadCap:conditionTagExpression=` attribute values. Suggests every qualified `<set>.<tag>` from the project's `.flcts` files; shows the tag's color and description in the completion documentation.
+- **Condition validation** (`9.3`). New diagnostic provider raises `flare.condition-unresolved` warnings for any `<set>.<tag>` token that doesn't resolve to a known condition tag. Fires for both topic-element `MadCap:conditions=` and snippet-include `MadCap:conditionTagExpression=` attributes.
+- **Conditions discovery summary** (`9.4`). The preview's discovery section now has a *Conditions* row with two columns — *Element conditions* and *Snippet conditions* — listing every unique tag referenced in the topic with an occurrence count. Hidden-by-target counts are surfaced too.
+
+### Added — cross-project rename references
+- **Cross-project rename refactoring** (`9.5`). Hooks `vscode.workspace.onDidRenameFiles` for any file VS Code knows is referenceable from a Flare project — HTML topics, snippets, TOCs, alias files, browse sequences, master pages, glossaries, relationship tables, condition tag sets, targets, page layouts, skins, plus images, fonts, and PDFs. On rename, the scanner walks every text-bearing project file (any `.fl*` extension plus `.htm`/`.html`) and looks for any reference attribute (`href`, `src`, `source`, `Link`, `xlink:href`, `File`, `Topic`) whose value resolves to the renamed file. Uses a single generic attribute pattern so future Flare project file types are covered without code changes.
+- **Rename references quick pick.** When the scan finds at least one affected reference, a `Flare: Rename References` quick pick opens automatically. Each entry shows the file, line/column, and a `before → after` preview. All entries are checked by default — uncheck any you want to leave alone, then press Enter to apply a single `WorkspaceEdit` rewriting every checked reference. Folder renames flatten internally into per-file renames so the same path serves both.
+- **Find stale references** (`9.5`). New `Flare Toolkit: Find Stale References` command for the case where the rename happened outside VS Code. Scans the same files and emits Problems-panel diagnostics for any reference that no longer resolves to an existing file.
+- **Style preservation.** Reference rewrites preserve the *style* of the original — project-root-relative refs (`/Content/foo.htm`) stay project-root-relative; sibling-relative refs (`../foo.htm`) stay relative.
+
+### Added — cross-cutting
+- **Validate All Topics command.** New `Flare Toolkit: Validate All Topics` walks every topic under the nearest project and runs the link validator against each one in a single pass, populating the Problems panel. Runs inside a cancellable progress notification.
+- **File watcher** for `.flcts` and `.fltar` invalidation. The dependency watcher now refreshes the preview and clears the condition tag index when condition tag sets or targets change on disk.
+
+### Added — Phase 9 follow-ups
+- **Rename Condition Tag command** (`flare.renameConditionTag`). Renames a qualified condition tag across the entire project: source `.flcts` `<ConditionTag Name="…" />` element, every topic's `MadCap:conditions=` and `MadCap:conditionTagExpression=` attributes, every target's `ConditionExpression="…"`, and the project's `PreviewConditionalExpression`. Whole-word matching prevents `Default.Beta` from accidentally rewriting `Default.BetaTesting`. Same multi-select preview UX as the cross-project rename refactor — single `WorkspaceEdit` so the whole rename is one undo step.
+- **Condition gutter decorations.** New `ConditionGutterDecorations` provider draws a small colored square in the editor gutter on every line that contains a `MadCap:conditions=` or `MadCap:conditionTagExpression=` attribute. The square's color is the `BackgroundColor` of the matching `.flcts` entry; tags missing from the index get a neutral grey square. The icons are generated as inline SVG `data:` URIs so the extension doesn't have to ship a static asset. Toggleable via `flarePreview.showConditionGutter` (on by default).
+- **Clickable Conditions discovery rows.** Every entry in the preview's *Element conditions* and *Snippet conditions* columns is now a button. Clicking it jumps to the matching `MadCap:conditions=` attribute in the source topic — single occurrence opens the editor at the line, multiple occurrences open a quick pick of all of them. Powered by a new `flare.openConditionInTopic` internal command.
+- **README walkthroughs.** Step-by-step recipes added to the README for inserting an xref, editing conditional text, picking a preview target, renaming a condition tag, renaming a topic file, and validating every topic before pushing.
+
+### Tests
+- `conditionExpression.test.ts` covers the target expression evaluator (include/exclude/AND/OR/parentheses/precedence/`not`/whitespace/malformed-fallback) and both comma- and semicolon-delimited attribute parsing.
+- `conditionRenderer.test.ts` covers element-condition rendering, hiding by target, nested same-name elements, badge insertion, snippet condition inventory, multi-tag count splitting, comment/CDATA passthrough, void-element hiding, and aggregate hiddenCount.
+- `conditionTagIndex.test.ts` exercises the per-project `.flcts` index against the sample fixtures: discovery, color/comment metadata, lookup miss, set-name extraction, and cache invalidation.
+- `targetIndex.test.ts` checks that the synthetic *Show everything* and *(Project default)* entries come first and that real `.fltar` files are discovered with their condition expression.
+- `dismissalStorePreviewTarget.test.ts` covers the new `previewTarget` sidecar key: round-trip, clearing, and non-interference with existing topic dismissals.
+- `renameReferencesHelpers.test.ts` covers the pure helpers extracted from `renameReferencesHandler` (`resolveReferencePath`, `rewriteReferencePath`, `splitHash`, `isExternal`, `positionOf`).
+- `renameConditionTag.test.ts` builds a temp project and verifies the scanner finds the qualified tag in topics, targets, and `.flprj`, rewrites the matching `.flcts` `Name="…"` attribute, ignores other sets, and respects whole-word boundaries.
+- `conditionGutterDecorations.test.ts` covers the SVG `data:` URI generator: known hex, fallback for unknown formats, alpha stripping, and shorthand `#rgb`.
+- `realProjectFixtures.test.ts` gains an end-to-end test that loads the new `Conditional.htm` fixture, applies a target expression that excludes `Default.Internal`, and verifies both rendering and the inventory counts.
+
 ## [0.1.1] — 2026-04-07
 
 ### Changed (rebranding)

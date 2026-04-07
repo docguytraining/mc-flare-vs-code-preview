@@ -50,3 +50,15 @@ export interface TransformResult {
   html: string;
   warnings: string[];
 }
+
+export interface PreviewConditionInventory {
+  elementConditionCounts: Map<string, number>;
+  snippetConditionCounts: Map<string, number>;
+  hiddenCount: number;
+}
+
+export interface PreviewTargetInfo {
+  id: string;
+  displayName: string;
+  expression: string | undefined;
+}

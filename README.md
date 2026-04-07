@@ -34,6 +34,23 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Insert Cross-Reference command** — opens a project-wide quick pick of every topic indexed by its first `<h1>`, then a follow-up picker for the bookmark to link to. Inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected for editing.
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
 
+### Conditional text and target picker
+
+- **Condition tag set index** — every `.flcts` file under `Project/ConditionTagSets` is parsed and indexed by qualified `<setName>.<tagName>`. Color and comment metadata are surfaced in completion documentation.
+- **Target-aware preview** — the transform pipeline parses `MadCap:conditions=` on every element and hides anything the active target's expression excludes. Supports `include[A or B]`, `exclude[A and B]`, nested grouping, and `AND` between top-level clauses.
+- **Target picker** — a "Target" label and "Change…" button appear in the preview header. Picking a target persists per project root in `.vscode/flare-preview.json`. The list always includes a synthetic *Show everything* (default) and *(Project default)* entry.
+- **Condition badges** *(opt-in)* — turn on `flarePreview.showConditionBadges` to inject a small `madcap-condition-badge` pill inside every conditional element so you can see at a glance which tag gates each block.
+- **Condition autocomplete** — typing inside `MadCap:conditions="…"` or `MadCap:conditionTagExpression="…"` opens a completion list of every qualified condition tag in the project.
+- **Condition validation** — unknown `<set>.<tag>` references raise `flare.condition-unresolved` warnings in the Problems panel.
+- **Conditions discovery summary** — the preview's discovery section now lists every unique element-condition tag and snippet-condition tag referenced in the topic, with per-tag occurrence counts and a "hidden by active target" total.
+
+### Cross-project rename references
+
+- **Automatic rename refactoring** — renaming or moving any Flare-referenceable file inside VS Code (HTML topics, snippets, TOCs, alias files, browse sequences, master pages, glossaries, relationship tables, condition tag sets, targets, page layouts, skins, plus images, fonts, and PDFs) triggers a project-wide scan for references to the old path. The scanner reads every text-bearing project file (any `.fl*` extension plus `.htm`/`.html`) and matches against any reference attribute (`href`, `src`, `source`, `Link`, `xlink:href`, `File`, `Topic`).
+- **Quick-pick refactor preview** — affected references appear in a multi-select quick pick with a `before → after` preview. Uncheck anything you want to leave alone, then press Enter to apply a single `WorkspaceEdit` rewriting every checked reference. Folder renames flatten internally into a batch of file renames so the same path serves both.
+- **Style preservation** — project-root-relative refs (`/Content/foo.htm`) stay project-root-relative; sibling-relative refs (`../foo.htm`) stay relative.
+- **`Flare: Find Stale References`** — for the case where the rename happened outside VS Code, this command scans the same files and surfaces stale references in the Problems panel.
+
 ### Link validation
 - Every Flare topic is scanned for broken local references in `<MadCap:xref>`, `<a>`, `<img>`, `<link rel="stylesheet">`, `<MadCap:snippet>`, and `<MadCap:snippetBlock>`.
 - Missing files appear as errors in the Problems panel; missing anchors as warnings; case-sensitivity drift as information notices (so case-sensitive Linux/CI environments don't surprise you later).
@@ -47,6 +64,10 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 |---|---|---|
 | `flare.previewHtml` | **Flare Toolkit: Live Preview** | Editor title bar icon (`.htm` / `.html`), Command Palette, Explorer context menu |
 | `flare.insertXref` | **Flare Toolkit: Insert Cross-Reference** | Command Palette, editor context menu |
+| `flare.pickPreviewTarget` | **Flare Toolkit: Pick Preview Target** | Command Palette, "Change…" button in preview header |
+| `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | Command Palette |
+| `flare.findStaleReferences` | **Flare Toolkit: Find Stale References** | Command Palette |
+| `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | Command Palette |
 
 ## Configuration
 
@@ -59,13 +80,17 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 | `flarePreview.variableReplacementMinLength` | `number` | `4` | Minimum length of a variable value before it is used for literal-match suggestions. |
 | `flarePreview.suggestionIgnoreVariables` | `string[]` | `[]` | Project-wide ignore list for variables that should never produce literal-match suggestions. Per-topic dismissals live in `.vscode/flare-preview.json` instead. |
 | `flarePreview.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
+| `flarePreview.showConditionBadges` | `boolean` | `false` | Show a small pill badge inside every conditional element in the preview, listing the `MadCap:conditions` tags that gate it. |
+| `flarePreview.showConditionGutter` | `boolean` | `true` | Show a colored square in the editor gutter on every line that contains a `MadCap:conditions` or `MadCap:conditionTagExpression` attribute. The square's color comes from the `BackgroundColor` of the matching `.flcts` entry. |
 
 ## Supported MadCap tags
 
 | Tag | Status | Notes |
 |---|---|---|
 | `<MadCap:variable>` | Supported | Resolved against project `.flvar` files. Both qualified (`Set.Name`) and bare (`Name`) references. |
-| `<MadCap:conditionalBlock>` | Baseline | Suppresses on `false` / `0` / `none` / `exclude` / `hide`; everything else renders. Full include/exclude expression evaluation is on the Phase 9 roadmap. |
+| `<MadCap:conditionalBlock>` | Supported | Baseline keyword suppression plus full target-aware evaluation via `MadCap:conditions=` on every element. The active target's `include[…]` / `exclude[…]` expression is honored. |
+| `MadCap:conditions=` (any element) | Supported | Parsed on every element; hidden when the active target excludes the tag list. Inventoried in the preview's Conditions section. |
+| `MadCap:conditionTagExpression=` (snippets) | Inventoried | Surfaced in the preview's Conditions section and validated against the project's condition tag index. |
 | `<MadCap:dropDown>` / `<MadCap:expandableArea>` | Supported | Rendered as native `<details>` / `<summary>` using the hotspot text or `title` attribute. |
 | `<MadCap:snippet>` / `<MadCap:snippetBlock>` | Supported | Resolved relative to the topic first, then the project root. Missing snippets render an inline warning marker. |
 | `<MadCap:xref>` | Supported | Rendered as a clickable link that opens the target in the editor. Topic and bookmark completion provided in `href="…"` attributes. |
@@ -75,7 +100,7 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 
 ## Known limitations
 
-- **Conditional expressions** are evaluated against a small keyword set, not against the full Flare condition language. Real `include[A or B]` / `exclude[…]` semantics, target-specific previews, and a target picker are scoped for Phase 9.
+- **Conditional expressions** are evaluated as a pragmatic subset of the Flare condition language: `include[…]` / `exclude[…]`, `or` / `and`, parentheses, top-level `AND`. Edge cases like `mc-conditional-text-skip-empty-paragraphs` are not modelled — the goal is "renders the topic the way the most-used target would," not byte-for-byte parity with a Flare build.
 - **Flare proxies** (breadcrumbs, TOC, glossary, mini-TOC, relationships) are not rendered.
 - **Master pages and skins** are not applied.
 - **Auto-numbering counters** (`{chapnum}`, `{Gn+}`, etc. inside `mc-auto-number-format`) are stripped because the extension has no Flare build context to evaluate them. Static label text (NOTE/TIP/WARNING etc.) renders correctly.
@@ -94,15 +119,80 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 4. Click the **Live Preview** icon in the editor title bar (or run **Flare Toolkit: Live Preview** from the Command Palette) to open the rendered topic in a side panel.
 5. As you type, the preview refreshes automatically. Save to force an immediate refresh.
 
+## Walkthroughs
+
+Step-by-step recipes for the workflows the toolkit is designed to make pleasant. Each starts from "I have a Flare topic open in VS Code" and ends with the change saved.
+
+### Insert a cross-reference
+
+Goal: link the cursor position in your prose to another topic in the project.
+
+1. Place the cursor where the link should appear.
+2. Open the Command Palette (`Ctrl/Cmd+Shift+P`) and run **Flare Toolkit: Insert Cross-Reference**.
+3. Pick the target topic from the project-wide quick pick. Topics are listed by their first `<h1>`; type to filter.
+4. Pick a bookmark from the second quick pick (or `(top of topic)` to link to the file itself). Bookmarks come from `<MadCap:anchor>` and `id="…"` attributes scanned from the target.
+5. The toolkit inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected so you can edit it without moving the cursor.
+
+Faster path: type `<a href="` or `<MadCap:xref href="` directly. The cross-reference completion provider lists every project topic; after picking one, type `#` to list its bookmarks.
+
+### Edit conditional text
+
+Goal: hide a paragraph from the next public build without removing it from the source.
+
+1. Make sure the project has at least one `.flcts` file under `Project/ConditionTagSets/`. If you need a new condition, add a `<ConditionTag Name="…" BackgroundColor="…" />` line there. The toolkit picks the change up the next time you save.
+2. In the topic, add `MadCap:conditions="Default.Internal"` to the element you want to gate (substitute your own set and tag).
+3. Start typing inside the quotes — the condition autocomplete lists every qualified `Set.Tag` discovered from your project's `.flcts` files. Description and color are shown in the docs panel.
+4. Save. A colored square appears in the gutter next to the line, taking its color from the matching tag definition. Lines with mismatched or unknown tags get a neutral grey square plus a warning in the Problems panel.
+
+To verify what each build target will see, use the target picker (next walkthrough).
+
+### Pick a preview target
+
+Goal: preview a topic exactly the way a specific build target would render it.
+
+1. Open the topic and run **Flare Toolkit: Live Preview** (or click the **Live Preview** icon in the editor title bar).
+2. In the preview header, find the **Target:** label and click **Change…**.
+3. Pick a target from the quick pick. The list always includes a synthetic *Show everything* (the default — hides nothing) and *(Project default)* (uses the `PreviewConditionalExpression` from your `.flprj`), followed by every real `.fltar` file in `Project/Targets/`.
+4. The preview re-renders. Elements gated by `MadCap:conditions=` are hidden if the picked target's expression excludes their tag list. The Conditions section in the preview tells you how many elements were hidden.
+5. The choice persists per project root in `.vscode/flare-preview.json`, so the next time you open the preview from this workspace it remembers what you picked.
+
+### Rename a condition tag everywhere
+
+Goal: rename `Default.Beta` to `Default.Released` across the entire project — including the source `.flcts` file, every topic that gates content on it, every target that includes/excludes it, and the project's preview expression.
+
+1. Run **Flare Toolkit: Rename Condition Tag…** from the Command Palette. (If your cursor is on a qualified `Set.Tag` token in a topic, that tag is preselected at the top of the picker.)
+2. Pick the tag to rename from the project-wide quick pick.
+3. Type the new tag name when prompted. The set name (the part before the dot) cannot change — Flare derives it from the `.flcts` filename.
+4. The toolkit scans every `.flcts`, `.htm`/`.html`, `.fltar`, `.flprj`, and other `.fl*` file in the project for occurrences of the qualified name plus the source `<ConditionTag Name="…" />` element in the matching `.flcts`.
+5. Review the multi-select quick pick — every found occurrence is pre-checked with a `before → after` preview. Uncheck anything you want to leave alone, then press Enter.
+6. The toolkit applies a single `WorkspaceEdit`, which means the whole rename is one undo step. The information notification at the end tells you how many occurrences were updated across how many files.
+
+### Rename a topic file and update every reference
+
+Goal: rename `Content/Topics/old-name.htm` to `Content/Topics/new-name.htm` without leaving any broken links.
+
+1. In the VS Code Explorer, press **F2** on the topic file (or right-click → Rename) and type the new name.
+2. The toolkit notices the rename, scans every Flare-readable file in the project for references that point at the old path, and pops a multi-select quick pick listing each one with a `before → after` preview.
+3. Uncheck anything you want to leave alone, then press Enter.
+4. The toolkit applies a single `WorkspaceEdit`. Project-root-relative refs (`/Content/Topics/old-name.htm`) stay project-root-relative; sibling-relative refs (`../old-name.htm`) stay relative.
+
+If the rename happened outside VS Code (terminal `mv`, file manager, `git mv`), run **Flare Toolkit: Find Stale References** instead. It scans the same files and surfaces every stale reference in the Problems panel so you can fix them by hand.
+
+### Validate every topic before pushing
+
+Goal: catch every broken link, missing snippet, missing image, missing stylesheet, and unknown condition tag in the project before opening a PR.
+
+1. Run **Flare Toolkit: Validate All Topics** from the Command Palette.
+2. A cancellable progress notification appears in the status bar. The toolkit walks every `.htm` / `.html` topic under the project root, runs the same link validator that powers the per-topic Problems panel diagnostics, and aggregates the results.
+3. When it finishes, the Problems panel contains every broken local reference: missing files as errors, missing anchors as warnings, case-sensitivity drift as information notices.
+4. External URLs (`http(s)://`, `mailto:`, `tel:`, `data:`) are skipped — the validator never makes network requests.
+
 ## Roadmap
 
-Phases 1–8 are complete. Phase 9 (in scoping) covers:
+Phases 1–9 are complete, plus the Phase 9 follow-ups (rename condition tag, gutter decorations, clickable Conditions rows). Remaining items rolled forward:
 
-- Condition tag set discovery and a target picker dropdown for the preview, so you can render the topic as a specific Flare target would build it.
-- Conditional text completion and validation in topic-level `MadCap:conditions=` attributes.
-- Snippet condition display in the preview metadata, with element/snippet condition counts.
-- Cross-project rename references — when you rename or move a topic in VS Code, the extension scans every other topic in the project for incoming xref/href/snippet references and offers to update them in one batch.
-- Class autocomplete from project stylesheets.
+- **Class autocomplete** from project stylesheets.
+- **Phase 10**: easier cross-reference and condition authoring entry points (`[[` topic picker, attribute-name completion on bare elements, retrigger after commas, color swatches in the completion list, "Add condition…" code action).
 
 Track progress in [`.project-plan.md`](.project-plan.md).
 

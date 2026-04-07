@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<html xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">
+  <head>
+    <link rel="stylesheet" href="../Resources/Stylesheets/Main.css" />
+  </head>
+  <body>
+    <h1>Conditional Content Sample</h1>
+    <p MadCap:conditions="Default.Public">Visible to the public audience.</p>
+    <p MadCap:conditions="Default.Internal">Internal review note — should be hidden in PublicWeb.</p>
+    <p MadCap:conditions="Default.Beta,Audience.Admin">Beta admin-only paragraph.</p>
+    <div MadCap:conditions="Audience.EndUser">
+      <p>End user instructions.</p>
+    </div>
+    <MadCap:snippetBlock src="../Resources/Snippets/Greeting.flsnp" MadCap:conditionTagExpression="Default.Public" />
+  </body>
+</html>

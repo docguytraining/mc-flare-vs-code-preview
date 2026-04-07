@@ -79,6 +79,53 @@ suite("Phase 8 regression coverage", () => {
     assert.ok(!result.html.includes("Unsupported"));
   });
 
+  test("Conditional.htm fixture renders with the active target hiding excluded paragraphs", async () => {
+    const conditionalPath = path.join(
+      FIXTURE_ROOT,
+      "Content",
+      "Topics",
+      "Conditional.htm"
+    );
+    const resolver = new FlareProjectResolver();
+    const context = await resolver.resolveForFile(vscode.Uri.file(conditionalPath));
+    assert.ok(context);
+    const html = await (await import("node:fs/promises")).readFile(
+      conditionalPath,
+      "utf8"
+    );
+    const variableResult = await resolveVariables(html, context);
+    const { parseTargetExpression } = await import("../../flare/conditionExpression");
+    const expression = parseTargetExpression(
+      "include[Default.Public] AND exclude[Default.Internal]"
+    );
+    const collected = {
+      elementConditionCounts: new Map<string, number>(),
+      snippetConditionCounts: new Map<string, number>(),
+      hiddenCount: 0
+    };
+    const result = await transformMadcapContent(html, {
+      variables: variableResult.variables,
+      projectContext: context,
+      currentDocument: vscode.Uri.file(conditionalPath),
+      conditionExpression: expression,
+      collectedConditions: collected
+    });
+    assert.ok(
+      result.html.includes("Visible to the public audience."),
+      "expected the public paragraph to render"
+    );
+    assert.ok(
+      !result.html.includes("Internal review note"),
+      "expected the internal paragraph to be hidden by exclude[Default.Internal]"
+    );
+    assert.ok(collected.hiddenCount >= 1, "expected hiddenCount to be tracked");
+    assert.ok(
+      collected.elementConditionCounts.get("Default.Public") &&
+        collected.elementConditionCounts.get("Default.Public")! >= 1,
+      "expected Default.Public to be inventoried"
+    );
+  });
+
   test("project resolver ignores ._* AppleDouble files when walking for .flprj", async () => {
     // The fixture only contains Sample.flprj, but a synthetic ._Sample.flprj
     // sitting next to it must not be picked. We exercise the underlying

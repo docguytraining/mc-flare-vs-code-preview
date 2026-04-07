@@ -9,6 +9,7 @@ const SIDECAR_RELATIVE_PATH = path.join(".vscode", "flare-preview.json");
 
 interface DismissalFile {
   topicDismissals: Record<string, string[]>;
+  previewTarget?: string;
 }
 
 /**
@@ -91,6 +92,28 @@ export class DismissalStore {
     logInfo(`Migrated dismissals from ${oldKey} to ${newKey}.`);
   }
 
+  /** Returns the persisted preview target id for the project (if any). */
+  public async getPreviewTarget(
+    projectContext: FlareProjectContext
+  ): Promise<string | undefined> {
+    const data = await readDismissalFile(projectContext);
+    return data.previewTarget;
+  }
+
+  /** Persists the chosen preview target id for the project. */
+  public async setPreviewTarget(
+    projectContext: FlareProjectContext,
+    targetId: string | undefined
+  ): Promise<void> {
+    const data = await readDismissalFile(projectContext);
+    if (targetId === undefined) {
+      delete data.previewTarget;
+    } else {
+      data.previewTarget = targetId;
+    }
+    await writeDismissalFile(projectContext, data);
+  }
+
   /**
    * Logs a warning to the output channel for every entry whose topic file no
    * longer exists on disk. Returns the list of stale keys so callers (a
@@ -145,7 +168,11 @@ async function readDismissalFile(projectContext: FlareProjectContext): Promise<D
           .filter((entry) => entry.length > 0);
       }
     }
-    return { topicDismissals: cleaned };
+    const result: DismissalFile = { topicDismissals: cleaned };
+    if (typeof parsed.previewTarget === "string" && parsed.previewTarget.length > 0) {
+      result.previewTarget = parsed.previewTarget;
+    }
+    return result;
   } catch (error) {
     if (isFileNotFound(error)) {
       return { topicDismissals: {} };
@@ -170,6 +197,9 @@ async function writeDismissalFile(
     if (list && list.length > 0) {
       sortedData.topicDismissals[key] = [...list].sort();
     }
+  }
+  if (data.previewTarget) {
+    sortedData.previewTarget = data.previewTarget;
   }
 
   const json = `${JSON.stringify(sortedData, null, 2)}\n`;
