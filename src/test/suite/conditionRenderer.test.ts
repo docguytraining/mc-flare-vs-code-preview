@@ -45,4 +45,49 @@ suite("Condition Renderer", () => {
     const result = applyConditions(html);
     assert.strictEqual(result.snippetConditionCounts.get("Default.Public"), 1);
   });
+
+  test("comma-list element conditions count each tag once", () => {
+    const html =
+      '<p MadCap:conditions="Default.Public,Default.Beta">multi</p>';
+    const result = applyConditions(html);
+    assert.strictEqual(result.elementConditionCounts.get("Default.Public"), 1);
+    assert.strictEqual(result.elementConditionCounts.get("Default.Beta"), 1);
+  });
+
+  test("comments and CDATA are passed through verbatim", () => {
+    const html =
+      '<!-- <p MadCap:conditions="X">comment</p> --><p>visible</p>';
+    const result = applyConditions(html, {
+      expression: parseTargetExpression("exclude[X]")
+    });
+    assert.ok(result.html.includes("<!--"));
+    assert.ok(result.html.includes("comment"));
+    assert.ok(result.html.includes("visible"));
+    assert.strictEqual(result.hiddenCount, 0);
+  });
+
+  test("self-closing void elements with conditions are hidden cleanly", () => {
+    const html = '<img MadCap:conditions="Default.Hidden" src="x.png" /><p>text</p>';
+    const result = applyConditions(html, {
+      expression: parseTargetExpression("exclude[Default.Hidden]")
+    });
+    assert.ok(!result.html.includes("x.png"));
+    assert.ok(result.html.includes("text"));
+    assert.strictEqual(result.hiddenCount, 1);
+  });
+
+  test("hiddenCount aggregates across multiple hidden siblings", () => {
+    const html = [
+      '<p MadCap:conditions="X">a</p>',
+      '<p MadCap:conditions="X">b</p>',
+      '<p>c</p>'
+    ].join("");
+    const result = applyConditions(html, {
+      expression: parseTargetExpression("exclude[X]")
+    });
+    assert.strictEqual(result.hiddenCount, 2);
+    assert.ok(!result.html.includes("a"));
+    assert.ok(!result.html.includes("b"));
+    assert.ok(result.html.includes("c"));
+  });
 });

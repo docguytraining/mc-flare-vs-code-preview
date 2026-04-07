@@ -66,4 +66,57 @@ suite("Condition Expression Evaluator", () => {
     assert.deepStrictEqual(parseConditionsAttribute(""), []);
     assert.deepStrictEqual(parseConditionsAttribute(undefined), []);
   });
+
+  test("parseConditionsAttribute also accepts semicolon-delimited lists", () => {
+    assert.deepStrictEqual(
+      parseConditionsAttribute("Default.Public; Default.Beta"),
+      ["Default.Public", "Default.Beta"]
+    );
+  });
+
+  test("parseConditionsAttribute drops empty entries from trailing commas", () => {
+    assert.deepStrictEqual(
+      parseConditionsAttribute("Default.Public,,Default.Beta,"),
+      ["Default.Public", "Default.Beta"]
+    );
+  });
+
+  test("not prefix inverts the inner predicate", () => {
+    const expr = parseTargetExpression("include[not Default.Internal]");
+    assert.strictEqual(shouldRenderForTags(expr, []), true);
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.Public"]), true);
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.Internal"]), false);
+  });
+
+  test("multiple top-level AND clauses are all required", () => {
+    const expr = parseTargetExpression(
+      "include[Default.Public] AND exclude[Default.Internal] AND exclude[Default.Beta]"
+    );
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.Public"]), true);
+    assert.strictEqual(
+      shouldRenderForTags(expr, ["Default.Public", "Default.Beta"]),
+      false
+    );
+    assert.strictEqual(
+      shouldRenderForTags(expr, ["Default.Public", "Default.Internal"]),
+      false
+    );
+  });
+
+  test("OR has lower precedence than AND", () => {
+    // include[A and B or C] should mean (A and B) or C, so just C is enough.
+    const expr = parseTargetExpression("include[Default.A and Default.B or Default.C]");
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.C"]), true);
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.A"]), false);
+    assert.strictEqual(
+      shouldRenderForTags(expr, ["Default.A", "Default.B"]),
+      true
+    );
+  });
+
+  test("whitespace-only input renders everything", () => {
+    const expr = parseTargetExpression("   ");
+    assert.strictEqual(shouldRenderForTags(expr, []), true);
+    assert.strictEqual(shouldRenderForTags(expr, ["Default.Anything"]), true);
+  });
 });

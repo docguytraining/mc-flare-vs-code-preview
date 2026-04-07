@@ -5,6 +5,14 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { logError, logInfo } from "../core/logger";
+import {
+  FileRename,
+  isExternal,
+  positionOf,
+  resolveReferencePath,
+  rewriteReferencePath,
+  splitHash
+} from "./renameReferencesHelpers";
 
 const SKIP_DIRECTORIES = new Set([
   "Output",
@@ -83,11 +91,6 @@ const ATTRIBUTE_REFERENCE_REGEX =
   /\b(?:href|src|source|Link|xlink:href|File|Topic)\s*=\s*(["'])([^"']*)\1/gi;
 
 const REFERENCE_PATTERNS: RegExp[] = [ATTRIBUTE_REFERENCE_REGEX];
-
-interface FileRename {
-  oldPath: string;
-  newPath: string;
-}
 
 interface AffectedReference {
   filePath: string;
@@ -393,50 +396,6 @@ async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
   }
 }
 
-function resolveReferencePath(
-  pathPart: string,
-  fileDir: string,
-  projectRoot: string
-): string | undefined {
-  const normalized = pathPart.replace(/\\/g, "/");
-  if (normalized.length === 0) {
-    return undefined;
-  }
-  if (normalized.startsWith("/")) {
-    return path.normalize(path.join(projectRoot, normalized.slice(1)));
-  }
-  return path.normalize(path.resolve(fileDir, normalized));
-}
-
-/**
- * Rewrites a reference path so it points at the renamed file while keeping
- * the *style* of the original reference. Project-root-relative refs stay
- * project-root-relative; relative refs stay relative.
- */
-function rewriteReferencePath(
-  pathPart: string,
-  fileDir: string,
-  rename: FileRename
-): string {
-  const normalized = pathPart.replace(/\\/g, "/");
-  if (normalized.startsWith("/")) {
-    // Project-root-relative — recompute relative to the project root by
-    // taking the rename's new path and dropping the leading project root.
-    // We don't know the project root from here directly, so use the file's
-    // own location as a proxy: walk up until both the old and new paths
-    // share a common ancestor.
-    const newRelative = path.relative(path.dirname(fileDir), rename.newPath);
-    // Fallback: keep a leading slash by anchoring on the new path's basename
-    // if relative computation fails.
-    if (newRelative.startsWith("..")) {
-      return `/${path.basename(rename.newPath)}`;
-    }
-    return `/${newRelative.replace(/\\/g, "/")}`;
-  }
-  const relative = path.relative(fileDir, rename.newPath).replace(/\\/g, "/");
-  return relative.length > 0 ? relative : path.basename(rename.newPath);
-}
-
 async function collectScanFiles(rootDir: string, accumulator: string[]): Promise<void> {
   let entries: Dirent[];
   try {
@@ -462,33 +421,6 @@ async function collectScanFiles(rootDir: string, accumulator: string[]): Promise
       accumulator.push(path.join(rootDir, entry.name));
     }
   }
-}
-
-function positionOf(text: string, offset: number): { line: number; column: number } {
-  let line = 0;
-  let lineStart = 0;
-  for (let i = 0; i < offset && i < text.length; i += 1) {
-    if (text.charAt(i) === "\n") {
-      line += 1;
-      lineStart = i + 1;
-    }
-  }
-  return { line, column: offset - lineStart };
-}
-
-function splitHash(href: string): [string, string | undefined] {
-  const index = href.indexOf("#");
-  if (index < 0) {
-    return [href, undefined];
-  }
-  return [href.slice(0, index), href.slice(index + 1)];
-}
-
-function isExternal(href: string): boolean {
-  return (
-    /^(https?|mailto|tel|ftp|data|javascript|vscode-webview):/i.test(href) ||
-    href.startsWith("//")
-  );
 }
 
 async function pathExists(candidate: string): Promise<boolean> {

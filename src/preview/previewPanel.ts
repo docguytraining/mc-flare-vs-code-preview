@@ -59,6 +59,16 @@ export class FlarePreviewPanel {
         void this.handleOpenTopic(message.href);
       } else if (message?.command === "pickTarget") {
         void vscode.commands.executeCommand("flare.pickPreviewTarget", this.currentDocumentUri);
+      } else if (
+        message?.command === "openConditionInTopic" &&
+        typeof message.tag === "string" &&
+        this.currentDocumentUri
+      ) {
+        void vscode.commands.executeCommand(
+          "flare.openConditionInTopic",
+          this.currentDocumentUri,
+          message.tag
+        );
       }
     });
   }
@@ -271,6 +281,15 @@ export class FlarePreviewPanel {
             vscode.postMessage({ command: "pickTarget" });
             return;
           }
+          const conditionRow = target.closest("button.flare-condition-row");
+          if (conditionRow) {
+            event.preventDefault();
+            const tag = conditionRow.getAttribute("data-tag");
+            if (tag) {
+              vscode.postMessage({ command: "openConditionInTopic", tag: tag });
+            }
+            return;
+          }
           const anchor = target.closest("a.flare-xref");
           if (!anchor) {
             return;
@@ -368,10 +387,10 @@ export class FlarePreviewPanel {
       }
       entries.sort((a, b) => a[0].localeCompare(b[0]));
       const items = entries
-        .map(
-          ([name, count]) =>
-            `<li><code>${escapeHtml(name)}</code> <span class="condition-count">(${count})</span></li>`
-        )
+        .map(([name, count]) => {
+          const safeTag = escapeHtml(name);
+          return `<li><button type="button" class="flare-condition-row" data-tag="${safeTag}" title="Jump to this condition in the topic"><code>${safeTag}</code> <span class="condition-count">(${count})</span></button></li>`;
+        })
         .join("");
       return `<div class="condition-column"><h3>${escapeHtml(title)}</h3><ul>${items}</ul></div>`;
     };

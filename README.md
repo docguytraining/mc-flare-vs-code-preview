@@ -67,6 +67,7 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 | `flare.pickPreviewTarget` | **Flare Toolkit: Pick Preview Target** | Command Palette, "Change…" button in preview header |
 | `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | Command Palette |
 | `flare.findStaleReferences` | **Flare Toolkit: Find Stale References** | Command Palette |
+| `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | Command Palette |
 
 ## Configuration
 
@@ -80,6 +81,7 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 | `flarePreview.suggestionIgnoreVariables` | `string[]` | `[]` | Project-wide ignore list for variables that should never produce literal-match suggestions. Per-topic dismissals live in `.vscode/flare-preview.json` instead. |
 | `flarePreview.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
 | `flarePreview.showConditionBadges` | `boolean` | `false` | Show a small pill badge inside every conditional element in the preview, listing the `MadCap:conditions` tags that gate it. |
+| `flarePreview.showConditionGutter` | `boolean` | `true` | Show a colored square in the editor gutter on every line that contains a `MadCap:conditions` or `MadCap:conditionTagExpression` attribute. The square's color comes from the `BackgroundColor` of the matching `.flcts` entry. |
 
 ## Supported MadCap tags
 
@@ -117,14 +119,80 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 4. Click the **Live Preview** icon in the editor title bar (or run **Flare Toolkit: Live Preview** from the Command Palette) to open the rendered topic in a side panel.
 5. As you type, the preview refreshes automatically. Save to force an immediate refresh.
 
+## Walkthroughs
+
+Step-by-step recipes for the workflows the toolkit is designed to make pleasant. Each starts from "I have a Flare topic open in VS Code" and ends with the change saved.
+
+### Insert a cross-reference
+
+Goal: link the cursor position in your prose to another topic in the project.
+
+1. Place the cursor where the link should appear.
+2. Open the Command Palette (`Ctrl/Cmd+Shift+P`) and run **Flare Toolkit: Insert Cross-Reference**.
+3. Pick the target topic from the project-wide quick pick. Topics are listed by their first `<h1>`; type to filter.
+4. Pick a bookmark from the second quick pick (or `(top of topic)` to link to the file itself). Bookmarks come from `<MadCap:anchor>` and `id="…"` attributes scanned from the target.
+5. The toolkit inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected so you can edit it without moving the cursor.
+
+Faster path: type `<a href="` or `<MadCap:xref href="` directly. The cross-reference completion provider lists every project topic; after picking one, type `#` to list its bookmarks.
+
+### Edit conditional text
+
+Goal: hide a paragraph from the next public build without removing it from the source.
+
+1. Make sure the project has at least one `.flcts` file under `Project/ConditionTagSets/`. If you need a new condition, add a `<ConditionTag Name="…" BackgroundColor="…" />` line there. The toolkit picks the change up the next time you save.
+2. In the topic, add `MadCap:conditions="Default.Internal"` to the element you want to gate (substitute your own set and tag).
+3. Start typing inside the quotes — the condition autocomplete lists every qualified `Set.Tag` discovered from your project's `.flcts` files. Description and color are shown in the docs panel.
+4. Save. A colored square appears in the gutter next to the line, taking its color from the matching tag definition. Lines with mismatched or unknown tags get a neutral grey square plus a warning in the Problems panel.
+
+To verify what each build target will see, use the target picker (next walkthrough).
+
+### Pick a preview target
+
+Goal: preview a topic exactly the way a specific build target would render it.
+
+1. Open the topic and run **Flare Toolkit: Live Preview** (or click the **Live Preview** icon in the editor title bar).
+2. In the preview header, find the **Target:** label and click **Change…**.
+3. Pick a target from the quick pick. The list always includes a synthetic *Show everything* (the default — hides nothing) and *(Project default)* (uses the `PreviewConditionalExpression` from your `.flprj`), followed by every real `.fltar` file in `Project/Targets/`.
+4. The preview re-renders. Elements gated by `MadCap:conditions=` are hidden if the picked target's expression excludes their tag list. The Conditions section in the preview tells you how many elements were hidden.
+5. The choice persists per project root in `.vscode/flare-preview.json`, so the next time you open the preview from this workspace it remembers what you picked.
+
+### Rename a condition tag everywhere
+
+Goal: rename `Default.Beta` to `Default.Released` across the entire project — including the source `.flcts` file, every topic that gates content on it, every target that includes/excludes it, and the project's preview expression.
+
+1. Run **Flare Toolkit: Rename Condition Tag…** from the Command Palette. (If your cursor is on a qualified `Set.Tag` token in a topic, that tag is preselected at the top of the picker.)
+2. Pick the tag to rename from the project-wide quick pick.
+3. Type the new tag name when prompted. The set name (the part before the dot) cannot change — Flare derives it from the `.flcts` filename.
+4. The toolkit scans every `.flcts`, `.htm`/`.html`, `.fltar`, `.flprj`, and other `.fl*` file in the project for occurrences of the qualified name plus the source `<ConditionTag Name="…" />` element in the matching `.flcts`.
+5. Review the multi-select quick pick — every found occurrence is pre-checked with a `before → after` preview. Uncheck anything you want to leave alone, then press Enter.
+6. The toolkit applies a single `WorkspaceEdit`, which means the whole rename is one undo step. The information notification at the end tells you how many occurrences were updated across how many files.
+
+### Rename a topic file and update every reference
+
+Goal: rename `Content/Topics/old-name.htm` to `Content/Topics/new-name.htm` without leaving any broken links.
+
+1. In the VS Code Explorer, press **F2** on the topic file (or right-click → Rename) and type the new name.
+2. The toolkit notices the rename, scans every Flare-readable file in the project for references that point at the old path, and pops a multi-select quick pick listing each one with a `before → after` preview.
+3. Uncheck anything you want to leave alone, then press Enter.
+4. The toolkit applies a single `WorkspaceEdit`. Project-root-relative refs (`/Content/Topics/old-name.htm`) stay project-root-relative; sibling-relative refs (`../old-name.htm`) stay relative.
+
+If the rename happened outside VS Code (terminal `mv`, file manager, `git mv`), run **Flare Toolkit: Find Stale References** instead. It scans the same files and surfaces every stale reference in the Problems panel so you can fix them by hand.
+
+### Validate every topic before pushing
+
+Goal: catch every broken link, missing snippet, missing image, missing stylesheet, and unknown condition tag in the project before opening a PR.
+
+1. Run **Flare Toolkit: Validate All Topics** from the Command Palette.
+2. A cancellable progress notification appears in the status bar. The toolkit walks every `.htm` / `.html` topic under the project root, runs the same link validator that powers the per-topic Problems panel diagnostics, and aggregates the results.
+3. When it finishes, the Problems panel contains every broken local reference: missing files as errors, missing anchors as warnings, case-sensitivity drift as information notices.
+4. External URLs (`http(s)://`, `mailto:`, `tel:`, `data:`) are skipped — the validator never makes network requests.
+
 ## Roadmap
 
-Phases 1–9 are complete. Remaining items rolled forward:
+Phases 1–9 are complete, plus the Phase 9 follow-ups (rename condition tag, gutter decorations, clickable Conditions rows). Remaining items rolled forward:
 
 - **Class autocomplete** from project stylesheets.
-- **Inline gutter decorations** showing each `MadCap:conditions=` tag's color from the source `.flcts` file.
-- **"Rename condition tag …" code action** that updates every reference across the project (uses the same engine as cross-project rename).
-- **Clickable line-links** from each entry in the preview's Conditions section back to the source position in the editor.
+- **Phase 10**: easier cross-reference and condition authoring entry points (`[[` topic picker, attribute-name completion on bare elements, retrigger after commas, color swatches in the completion list, "Add condition…" code action).
 
 Track progress in [`.project-plan.md`](.project-plan.md).
 

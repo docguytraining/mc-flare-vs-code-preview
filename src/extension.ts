@@ -9,8 +9,10 @@ import { ConditionTagIndex } from "./flare/conditionTagIndex";
 import { discoverTargets, SHOW_EVERYTHING_TARGET_ID, TargetEntry } from "./flare/targetIndex";
 import { parseTargetExpression } from "./flare/conditionExpression";
 import { ConditionDiagnosticProvider } from "./diagnostics/conditionDiagnosticProvider";
+import { ConditionGutterDecorations } from "./diagnostics/conditionGutterDecorations";
 import { ConditionCompletionProvider } from "./language/conditionCompletionProvider";
 import { registerRenameReferencesHandler } from "./commands/renameReferencesHandler";
+import { registerRenameConditionTagCommand } from "./commands/renameConditionTagCommand";
 import { registerValidateAllTopicsCommand } from "./commands/validateAllTopicsCommand";
 import { disposeLogger, logError, logInfo, showLogChannel } from "./core/logger";
 import { VariableInlayHintsProvider } from "./language/variableInlayHintsProvider";
@@ -55,6 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
     projectResolver,
     conditionTagIndex
   );
+  const conditionGutter = new ConditionGutterDecorations(projectResolver, conditionTagIndex);
   const authoringTimers = new Map<string, NodeJS.Timeout>();
 
   const scheduleAuthoringValidation = (document: vscode.TextDocument): void => {
@@ -284,6 +287,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const onDependencyChanged = (uri: vscode.Uri): void => {
     projectResolver.invalidateForPath(uri.fsPath);
     conditionTagIndex.invalidateForPath(uri.fsPath);
+    conditionGutter.refreshAll();
     FlarePreviewPanel.refreshCurrent(buildPreviewData);
   };
 
@@ -461,6 +465,10 @@ export function activate(context: vscode.ExtensionContext): void {
     linkValidator
   );
   const renameReferencesRegistration = registerRenameReferencesHandler(projectResolver);
+  const renameConditionTagRegistration = registerRenameConditionTagCommand(
+    projectResolver,
+    conditionTagIndex
+  );
 
   const conditionCompletionRegistration = vscode.languages.registerCompletionItemProvider(
     HTML_DOCUMENT_SELECTOR,
@@ -515,6 +523,60 @@ export function activate(context: vscode.ExtensionContext): void {
         logError("Failed to persist preview target", error);
       }
       FlarePreviewPanel.refreshCurrent(buildPreviewData);
+    }
+  );
+
+  const openConditionInTopicRegistration = vscode.commands.registerCommand(
+    "flare.openConditionInTopic",
+    async (topicUri?: vscode.Uri, tagName?: string) => {
+      if (!topicUri || typeof tagName !== "string" || tagName.length === 0) {
+        return;
+      }
+      let document: vscode.TextDocument;
+      try {
+        document = await vscode.workspace.openTextDocument(topicUri);
+      } catch (error) {
+        logError(`Failed to open topic for condition jump: ${String(error)}`, error);
+        return;
+      }
+      const occurrences = findConditionOccurrences(document, tagName);
+      if (occurrences.length === 0) {
+        vscode.window.showInformationMessage(
+          `Flare: '${tagName}' is no longer present in this topic.`
+        );
+        return;
+      }
+      const jumpTo = async (index: number): Promise<void> => {
+        const position = occurrences[index];
+        const editor = await vscode.window.showTextDocument(document, {
+          viewColumn: vscode.ViewColumn.One,
+          preview: false,
+          selection: new vscode.Range(position, position)
+        });
+        editor.revealRange(
+          new vscode.Range(position, position),
+          vscode.TextEditorRevealType.InCenter
+        );
+      };
+      if (occurrences.length === 1) {
+        await jumpTo(0);
+        return;
+      }
+      const items = occurrences.map((position, index) => {
+        const lineText = document.lineAt(position.line).text.trim();
+        return {
+          label: `Line ${position.line + 1}`,
+          description: lineText.length > 80 ? `${lineText.slice(0, 80)}…` : lineText,
+          index
+        };
+      });
+      const picked = await vscode.window.showQuickPick(items, {
+        title: `Flare: '${tagName}' has ${occurrences.length} occurrences`,
+        placeHolder: "Pick the occurrence to jump to"
+      });
+      if (picked) {
+        await jumpTo(picked.index);
+      }
     }
   );
 
@@ -613,13 +675,16 @@ export function activate(context: vscode.ExtensionContext): void {
     insertXrefRegistration,
     validateAllTopicsRegistration,
     renameReferencesRegistration,
+    renameConditionTagRegistration,
     pickPreviewTargetRegistration,
+    openConditionInTopicRegistration,
     dismissTopicSuggestionRegistration,
     dismissSuggestionRegistration,
     onDidRename,
     suggestionDiagnostics,
     linkDiagnostics,
     conditionDiagnostics,
+    conditionGutter,
     {
       dispose: () => {
         for (const timer of authoringTimers.values()) {
@@ -701,6 +766,38 @@ async function resolveDocument(resource?: vscode.Uri): Promise<vscode.TextDocume
 
 function isFlareHtmlDocument(document: vscode.TextDocument): boolean {
   return isFlareHtmlPath(document.uri.fsPath);
+}
+
+/**
+ * Walks the source text of a topic document looking for the given condition
+ * tag inside `MadCap:conditions=` or `MadCap:conditionTagExpression=`
+ * attributes. Returns the position of the start of each matching attribute
+ * value (in document order). Used by `flare.openConditionInTopic` to back the
+ * clickable rows in the preview's Conditions section.
+ */
+function findConditionOccurrences(
+  document: vscode.TextDocument,
+  tagName: string
+): vscode.Position[] {
+  const text = document.getText();
+  const regex =
+    /\b(?:MadCap:conditions|MadCap:conditionTagExpression)\s*=\s*(["'])([^"']*)\1/gi;
+  const tagRegex = new RegExp(`(?<![\\w.-])${escapeRegex(tagName)}(?![\\w.-])`);
+  const positions: vscode.Position[] = [];
+  let match = regex.exec(text);
+  while (match) {
+    const value = match[2] ?? "";
+    if (tagRegex.test(value)) {
+      const valueStart = match.index + match[0].length - 1 - value.length;
+      positions.push(document.positionAt(valueStart));
+    }
+    match = regex.exec(text);
+  }
+  return positions;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isFlareHtmlPath(fsPath: string): boolean {

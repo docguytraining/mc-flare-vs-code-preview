@@ -81,6 +81,17 @@
         "command": "flare.findStaleReferences",
         "title": "Find Stale References",
         "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.renameConditionTag",
+        "title": "Rename Condition Tag…",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.openConditionInTopic",
+        "title": "Open Condition Occurrence",
+        "category": "Flare Toolkit",
+        "enablement": "false"
       }
     ],
     "menus": {
@@ -153,6 +164,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show a small pill badge inside every conditional element in the preview, listing the MadCap:conditions tags that gate it."
+        },
+        "flarePreview.showConditionGutter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a colored square in the editor gutter on every line that contains a MadCap:conditions or MadCap:conditionTagExpression attribute. The color is taken from the matching .flcts entry's BackgroundColor."
         }
       }
     }
