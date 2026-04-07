@@ -616,16 +616,24 @@ async function replaceMatchesAsync(
   regex: RegExp,
   replacer: (...args: string[]) => Promise<string>
 ): Promise<string> {
-  regex.lastIndex = 0;
+  // Clone the regex so this call has its own lastIndex state. Without this,
+  // recursive calls (snippet expansion → loadSnippet → expandSnippetsIn →
+  // replaceMatchesAsync on the same module-level regex object) would
+  // corrupt the outer iteration's lastIndex while the inner call was
+  // running, silently truncating the outer content after the first nested
+  // match. Module-level RegExp objects with the `g` flag carry mutable
+  // state, so any helper that wants to be reentrant has to make a fresh
+  // copy per call.
+  const localRegex = new RegExp(regex.source, regex.flags);
   let result = "";
   let lastIndex = 0;
 
-  let match = regex.exec(input);
+  let match = localRegex.exec(input);
   while (match) {
     result += input.slice(lastIndex, match.index);
     result += await replacer(...match);
     lastIndex = match.index + match[0].length;
-    match = regex.exec(input);
+    match = localRegex.exec(input);
   }
 
   result += input.slice(lastIndex);
