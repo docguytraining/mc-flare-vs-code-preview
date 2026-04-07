@@ -55,6 +55,16 @@ const ANNOTATION_SELF_CLOSING_REGEX = /<MadCap:annotation\b[^>]*\/>/gi;
 const RELATED_TOPICS_REGEX = /<MadCap:relatedTopics\b[^>]*>([\s\S]*?)<\/MadCap:relatedTopics>/gi;
 const RELATED_TOPICS_SELF_CLOSING_REGEX = /<MadCap:relatedTopics\b[^>]*\/>/gi;
 const RELATED_TOPIC_ITEM_REGEX = /<MadCap:relatedTopic\b([^>]*)\/>/gi;
+// <MadCap:conditionalText> is the inline counterpart to
+// <MadCap:conditionalBlock>: a transparent wrapper around a span of inline
+// text that's gated by a `MadCap:conditions=` attribute. The condition
+// renderer in `applyConditions` already handles the gating (hiding the whole
+// element when the active target excludes its conditions, or stripping the
+// `MadCap:conditions=` attribute when it includes them). After that pass
+// runs, any surviving wrapper has done its job and we can unwrap it so the
+// inner content flows back into the surrounding paragraph naturally.
+const CONDITIONAL_TEXT_REGEX = /<MadCap:conditionalText\b[^>]*>([\s\S]*?)<\/MadCap:conditionalText>/gi;
+const CONDITIONAL_TEXT_SELF_CLOSING_REGEX = /<MadCap:conditionalText\b[^>]*\/>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -124,6 +134,14 @@ const relatedTopicsTransformHandler: TransformHandler = {
  * Silently drops authoring/metadata tags whose content (or absence of
  * content) should never appear in the rendered preview. Runs before the
  * unsupported-tag fallback so these don't pollute the warning list.
+ *
+ * Also unwraps `<MadCap:conditionalText>` here because by the time this
+ * handler runs the condition renderer has already either hidden the whole
+ * element (if the active target excludes its conditions) or stripped its
+ * `MadCap:conditions=` attribute (if it includes them). The wrapper itself
+ * is then transparent — its job is done and we want its inner content to
+ * flow back into the surrounding paragraph as if the wrapper had never
+ * been there.
  */
 const metadataDropHandler: TransformHandler = {
   id: "metadata-drop",
@@ -134,6 +152,11 @@ const metadataDropHandler: TransformHandler = {
       (_full, body: string) => body
     );
     transformed = transformed.replace(ANNOTATION_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(
+      CONDITIONAL_TEXT_REGEX,
+      (_full, body: string) => body
+    );
+    transformed = transformed.replace(CONDITIONAL_TEXT_SELF_CLOSING_REGEX, "");
     return transformed;
   }
 };
