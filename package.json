@@ -2,7 +2,7 @@
   "name": "mc-flare-vs-code-preview",
   "displayName": "MadCap Flare Preview",
   "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering of variables, snippets, conditionals, and stylesheets.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "DocGuyTraining",
   "author": {
     "name": "DocGuy Training"
@@ -124,7 +124,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Project-wide list of Flare variable names that should never produce literal-match suggestions or value-prefix completions. Add either the qualified name (e.g. 'UI.user') or the bare name. For per-topic dismissals, insert an inline '<!-- flare:no-suggest VariableName -->' comment instead."
+          "description": "Project-wide list of Flare variable names that should never produce literal-match suggestions or value-prefix completions. Add either the qualified name (e.g. 'UI.user') or the bare name. For per-topic dismissals, use the 'Never suggest X in this topic' code action — it writes to .vscode/flare-preview.json without modifying the topic file."
         },
         "flarePreview.validateLinks": {
           "type": "boolean",

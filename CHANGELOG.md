@@ -2,6 +2,11 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [0.1.1] — 2026-04-07
+
+### Fixed
+- Settings description for `flarePreview.suggestionIgnoreVariables` no longer references the old inline `<!-- flare:no-suggest -->` comment mechanism (removed in 0.1.0). The description now points authors at the "Never suggest X in this topic" code action, which writes to `.vscode/flare-preview.json` without modifying the topic file.
+
 ## [0.1.0] — Initial public release
 
 First Marketplace release. Eight implementation phases, validated end-to-end against a real Flare documentation project (~2,300 topics, 13 variable files, 561 unique variables).
