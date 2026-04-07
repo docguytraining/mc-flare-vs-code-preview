@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { logInfo, logWarning } from "../core/logger";
 
 /**
  * Applies a `WorkspaceEdit` that touches many files and tidies up after
@@ -14,17 +15,13 @@ import * as vscode from "vscode";
  * upstream, so we want the edit applied and the files saved and closed
  * automatically.
  *
- * Behavior:
- *
- *   1. Snapshot every editor URI that's open *before* the edit so we can
- *      tell which tabs the user already had vs. which ones VS Code opened
- *      in response to our edit.
- *   2. Apply the edit inside a progress notification so a long save phase
- *      doesn't make the dev host appear frozen.
- *   3. Save every dirty document VS Code dirtied as a result of the edit.
- *   4. Close any tabs that weren't already open before the rename. Tabs
- *      the user had open at the start (including the file they invoked
- *      the rename from) stay open and refresh in place.
+ * Comparisons across the tab list, the workspace edit, and the loaded
+ * text documents all happen via `Uri.fsPath` rather than `Uri.toString()`
+ * because Uri's string form can normalize differently depending on how
+ * the Uri was constructed (`Uri.file()` vs `openTextDocument()` vs the
+ * tab API), and we need a single canonical key. fsPath is the OS-native
+ * filesystem path and is identical across every construction route on
+ * a given platform.
  *
  * Returns the number of files actually modified plus a boolean indicating
  * whether the edit applied successfully.
@@ -38,28 +35,17 @@ export async function applyEditAndCleanUpTabs(
   edit: vscode.WorkspaceEdit,
   options: { progressTitle: string }
 ): Promise<ApplyAndCloseResult> {
-  // Snapshot the URIs of every tab that's currently open. We use the
+  // Snapshot the fsPaths of every tab that's currently open. We use the
   // tab API rather than `visibleTextEditors` because the latter only
   // covers editors that are visually rendered right now — a background
   // tab in another column is still "open" from the user's perspective
   // and shouldn't be closed by us.
-  const previouslyOpenUris = new Set<string>();
-  for (const tabGroup of vscode.window.tabGroups.all) {
-    for (const tab of tabGroup.tabs) {
-      const input = tab.input;
-      if (input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom) {
-        previouslyOpenUris.add(input.uri.toString());
-      }
-    }
-  }
+  const previouslyOpenPaths = collectOpenTabPaths();
 
-  // Collect the URIs the edit is going to touch *before* we apply it, so
-  // we know which files to save and which tabs to close even if applyEdit
-  // ends up dirtying tabs we didn't list explicitly (it shouldn't, but
-  // belt-and-suspenders).
-  const editedUris = new Set<string>();
+  // Collect the fsPaths the edit is going to touch *before* we apply it.
+  const editedPaths = new Set<string>();
   for (const [uri] of edit.entries()) {
-    editedUris.add(uri.toString());
+    editedPaths.add(uri.fsPath);
   }
 
   return vscode.window.withProgress(
@@ -69,7 +55,7 @@ export async function applyEditAndCleanUpTabs(
       cancellable: false
     },
     async (progress) => {
-      progress.report({ message: `Applying edits to ${editedUris.size} file(s)…` });
+      progress.report({ message: `Applying edits to ${editedPaths.size} file(s)…` });
       const applied = await vscode.workspace.applyEdit(edit);
       if (!applied) {
         return { applied: false, modifiedFileCount: 0 };
@@ -79,11 +65,11 @@ export async function applyEditAndCleanUpTabs(
       // rather than relying on `workspace.saveAll` because saveAll is a
       // sledgehammer — it saves *every* dirty document in the workspace,
       // including ones the user was editing themselves and not done with.
-      progress.report({ message: `Saving ${editedUris.size} file(s)…` });
+      progress.report({ message: `Saving ${editedPaths.size} file(s)…` });
       let savedCount = 0;
-      for (const uriString of editedUris) {
+      for (const fsPath of editedPaths) {
         const document = vscode.workspace.textDocuments.find(
-          (doc) => doc.uri.toString() === uriString
+          (doc) => doc.uri.fsPath === fsPath
         );
         if (document && document.isDirty) {
           try {
@@ -105,30 +91,78 @@ export async function applyEditAndCleanUpTabs(
       // Close any tabs that weren't open before but are now (i.e. tabs VS
       // Code opened in response to our edit). Tabs the user already had
       // open stay open so they can see the in-place refresh.
+      //
+      // Yield to the event loop first. VS Code's tab list isn't always
+      // updated synchronously after applyEdit + save — when applyEdit
+      // surfaces a previously-loaded document as a new dirty tab, that
+      // tab can take a microtask or two to register in `tabGroups.all`.
+      // Without the yield the close walk runs against a stale tab list
+      // and finds nothing to close.
       progress.report({ message: "Closing temporary tabs…" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       const tabsToClose: vscode.Tab[] = [];
       for (const tabGroup of vscode.window.tabGroups.all) {
         for (const tab of tabGroup.tabs) {
           const input = tab.input;
+          const tabPath =
+            input instanceof vscode.TabInputText ||
+            input instanceof vscode.TabInputCustom
+              ? input.uri.fsPath
+              : undefined;
           if (
-            (input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom) &&
-            editedUris.has(input.uri.toString()) &&
-            !previouslyOpenUris.has(input.uri.toString())
+            tabPath !== undefined &&
+            editedPaths.has(tabPath) &&
+            !previouslyOpenPaths.has(tabPath)
           ) {
             tabsToClose.push(tab);
           }
         }
       }
+
+      logInfo(
+        `applyEditAndCleanUpTabs: edited=${editedPaths.size}, previouslyOpen=${previouslyOpenPaths.size}, tabsToClose=${tabsToClose.length}`
+      );
+
       if (tabsToClose.length > 0) {
+        // Try the batch close first. If it fails or returns false, fall
+        // back to closing each tab individually so a single problem tab
+        // doesn't prevent the rest from being cleaned up.
+        let batchClosed = false;
         try {
-          await vscode.window.tabGroups.close(tabsToClose);
-        } catch {
-          // Closing tabs is best-effort; ignore failures so the rename
-          // result is still reported.
+          batchClosed = await vscode.window.tabGroups.close(tabsToClose);
+        } catch (error) {
+          logWarning(
+            `applyEditAndCleanUpTabs: batch close failed (${String(error)}), falling back to per-tab close`
+          );
+        }
+        if (!batchClosed) {
+          for (const tab of tabsToClose) {
+            try {
+              await vscode.window.tabGroups.close(tab);
+            } catch (error) {
+              logWarning(
+                `applyEditAndCleanUpTabs: failed to close tab ${tab.label} (${String(error)})`
+              );
+            }
+          }
         }
       }
 
       return { applied: true, modifiedFileCount: savedCount };
     }
   );
+}
+
+function collectOpenTabPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const tabGroup of vscode.window.tabGroups.all) {
+    for (const tab of tabGroup.tabs) {
+      const input = tab.input;
+      if (input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom) {
+        paths.add(input.uri.fsPath);
+      }
+    }
+  }
+  return paths;
 }
