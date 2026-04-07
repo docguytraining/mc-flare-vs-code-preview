@@ -454,7 +454,16 @@ async function pathExists(candidate: string): Promise<boolean> {
 async function readTextOrUndefined(filePath: string): Promise<string | undefined> {
   try {
     const bytes = await fs.readFile(filePath);
-    return Buffer.from(bytes).toString("utf8");
+    let text = Buffer.from(bytes).toString("utf8");
+    // Strip the UTF-8 BOM. VS Code's TextDocument strips it on load,
+    // so leaving it in the scanner's string produces byte offsets that
+    // are off by one relative to `document.positionAt()`, which
+    // corrupts the rewritten range. See the matching note in
+    // `renameConditionTagCommand.ts`.
+    if (text.charCodeAt(0) === 0xfeff) {
+      text = text.slice(1);
+    }
+    return text;
   } catch {
     return undefined;
   }

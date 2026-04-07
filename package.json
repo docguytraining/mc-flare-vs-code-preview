@@ -87,6 +87,11 @@
         "category": "Flare Toolkit"
       },
       {
+        "command": "flare.clearProblemsForClosedFiles",
+        "title": "Clear Problems for Closed Files",
+        "category": "Flare Toolkit"
+      },
+      {
         "command": "flare.openConditionInTopic",
         "title": "Open Condition Occurrence",
         "category": "Flare Toolkit",

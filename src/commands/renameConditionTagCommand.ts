@@ -16,7 +16,14 @@ const SKIP_DIRECTORIES = new Set([
   ".vs"
 ]);
 
-const SCANNABLE_EXTENSIONS = new Set([".htm", ".html"]);
+// File types we open and scan for condition tag references. HTML topics
+// and the Flare project files (`.fl*`) are obvious. We also scan `.js`
+// and `.css` because Flare authors routinely embed `MadCap:conditions=`
+// strings inside scripts under `Content/Resources/MasterPages/scripts`
+// and inside CSS comments / selector blocks — those references need to
+// be renamed alongside the topic-level ones, otherwise the rename
+// silently leaves stale tokens that break the next build.
+const SCANNABLE_EXTENSIONS = new Set([".htm", ".html", ".js", ".css"]);
 const FLARE_EXTENSION_REGEX = /^\.fl[a-z0-9]+$/i;
 
 interface ConditionTagOccurrence {
@@ -59,11 +66,16 @@ interface QuickPickOccurrenceItem extends vscode.QuickPickItem {
  */
 export function registerRenameConditionTagCommand(
   projectResolver: FlareProjectResolver,
-  conditionTagIndex: ConditionTagIndex
+  conditionTagIndex: ConditionTagIndex,
+  conditionDiagnostics: vscode.DiagnosticCollection
 ): vscode.Disposable {
   return vscode.commands.registerCommand("flare.renameConditionTag", async () => {
     try {
-      await runRenameConditionTagCommand(projectResolver, conditionTagIndex);
+      await runRenameConditionTagCommand(
+        projectResolver,
+        conditionTagIndex,
+        conditionDiagnostics
+      );
     } catch (error) {
       logError("Rename condition tag failed", error);
       vscode.window.showErrorMessage(
@@ -75,7 +87,8 @@ export function registerRenameConditionTagCommand(
 
 async function runRenameConditionTagCommand(
   projectResolver: FlareProjectResolver,
-  conditionTagIndex: ConditionTagIndex
+  conditionTagIndex: ConditionTagIndex,
+  conditionDiagnostics: vscode.DiagnosticCollection
 ): Promise<void> {
   // Snapshot tabs at the very start, before any document loading. The
   // helper later uses this to decide which tabs to close — anything
@@ -110,6 +123,13 @@ async function runRenameConditionTagCommand(
     return;
   }
 
+  // Refresh the condition tag index before reading it. The cache may be
+  // stale from a previous rename in this session, from an external git
+  // checkout that swapped .flcts files, or from an in-editor edit the
+  // user just made. We always want the picker to show what's actually
+  // on disk right now, not whatever was in the index from the last
+  // time anything called getEntries().
+  conditionTagIndex.invalidateAll();
   const tags = await conditionTagIndex.getEntries(projectContext);
   if (tags.length === 0) {
     vscode.window.showInformationMessage(
@@ -266,10 +286,58 @@ async function runRenameConditionTagCommand(
     logInfo(
       `Renamed condition tag ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
     );
-    vscode.window.showInformationMessage(
-      `Flare: renamed ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
-    );
     conditionTagIndex.invalidateAll();
+
+    // Clear stale `flare-conditions` diagnostics for every file we just
+    // edited. The diagnostic provider runs on a debounce against the
+    // text of each modified document; when the rename touches hundreds
+    // of files, the debounced validation pass fires *after* the docs
+    // have been saved and closed and ends up evaluating doc content
+    // against an index snapshot that briefly disagrees, leaving the
+    // Problems panel full of "Unknown Flare condition tag" warnings
+    // that aren't real. Wiping the entries for the touched URIs is
+    // safe because either (a) the file is closed and the next reopen
+    // will revalidate it from scratch, or (b) the file is still open
+    // and our `onDidChangeTextDocument` handler will revalidate it
+    // shortly anyway.
+    for (const filePath of byFile.keys()) {
+      conditionDiagnostics.delete(vscode.Uri.file(filePath));
+    }
+
+    // Verification re-scan: read the project again and check that no
+    // occurrence of the OLD qualified name remains. If any do, surface
+    // them to the user with a warning so they don't silently ship a
+    // half-renamed project. This is the safety net for any future bug
+    // in the rename pipeline (offset mismatches, encoding issues,
+    // unhandled file types) — corruption-class bugs should never
+    // pass silently again.
+    const remaining = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Flare: Verifying rename of '${oldQualified}'…`,
+        cancellable: false
+      },
+      () =>
+        scanProjectForOccurrences(
+          projectContext!.projectRoot.fsPath,
+          setName,
+          oldTagName,
+          newTagName.trim()
+        )
+    );
+    if (remaining.length > 0) {
+      vscode.window.showWarningMessage(
+        `Flare: rename completed but ${remaining.length} occurrence(s) of '${oldQualified}' still remain. Check the output channel for the file list.`
+      );
+      logInfo(`Verification: ${remaining.length} stale occurrence(s) after rename:`);
+      for (const occ of remaining.slice(0, 50)) {
+        logInfo(`  ${occ.filePath}:${occ.line + 1}:${occ.column + 1}`);
+      }
+    } else {
+      vscode.window.showInformationMessage(
+        `Flare: renamed ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
+      );
+    }
   } else {
     vscode.window.showWarningMessage(
       "Flare: failed to apply rename edits. See the output channel."
@@ -474,7 +542,19 @@ async function collectScanFiles(rootDir: string, accumulator: string[]): Promise
 async function readTextOrUndefined(filePath: string): Promise<string | undefined> {
   try {
     const bytes = await fs.readFile(filePath);
-    return Buffer.from(bytes).toString("utf8");
+    let text = Buffer.from(bytes).toString("utf8");
+    // Strip the UTF-8 BOM if present. VS Code's TextDocument silently
+    // strips the BOM when it loads a file, so a scanner that keeps the
+    // BOM produces byte offsets that are off by one relative to
+    // `document.positionAt()`. That offset mismatch is what produced the
+    // `DDefault.ScreenOnlyrename` corruption — the range shifted right
+    // by one char, preserving the original first character of the match
+    // and eating one char past the end. Strip it here so the scanner's
+    // string is byte-for-byte identical to what VS Code exposes.
+    if (text.charCodeAt(0) === 0xfeff) {
+      text = text.slice(1);
+    }
+    return text;
   } catch {
     return undefined;
   }
