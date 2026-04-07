@@ -29,12 +29,12 @@ export class AddConditionCodeActionProvider implements vscode.CodeActionProvider
       return undefined;
     }
     const action = new vscode.CodeAction(
-      "Add condition…",
+      "Add Condition to Element…",
       vscode.CodeActionKind.RefactorRewrite
     );
     action.command = {
       command: COMMAND,
-      title: "Add condition…",
+      title: "Add Condition to Element…",
       arguments: [document.uri, tagInfo.tagRange, tagInfo.existingConditions]
     };
     return [action];

@@ -178,11 +178,24 @@ async function runRenameConditionTagCommand(
     }
   }
 
-  const occurrences = await scanProjectForOccurrences(
-    projectContext.projectRoot.fsPath,
-    setName,
-    oldTagName,
-    newTagName.trim()
+  // Wrap the scan in a progress notification. Real Flare projects can have
+  // thousands of files, and the scan reads + regex-matches every one of
+  // them. Even though we now parallelize the file I/O, "no feedback for 1+
+  // seconds while VS Code looks frozen" is bad UX — surface a notification
+  // so authors know the command is doing something and don't give up.
+  const occurrences = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Flare: Scanning for '${oldQualified}'…`,
+      cancellable: false
+    },
+    () =>
+      scanProjectForOccurrences(
+        projectContext!.projectRoot.fsPath,
+        setName,
+        oldTagName,
+        newTagName.trim()
+      )
   );
 
   if (occurrences.length === 0) {
@@ -270,71 +283,118 @@ export async function scanProjectForOccurrences(
 
   const oldQualified = `${setName}.${oldTagName}`;
   const newQualified = `${setName}.${newTagName}`;
-  const qualifiedRegex = new RegExp(
-    `(?<![\\w.])${escapeRegex(oldQualified)}(?![\\w.-])`,
-    "g"
-  );
-  const flctsNameRegex = new RegExp(
-    `(<ConditionTag\\b[^>]*\\bName\\s*=\\s*["'])${escapeRegex(oldTagName)}(["'])`,
-    "gi"
-  );
 
+  // Read files in parallel batches. Serial reads against a real Flare
+  // project (3,000+ files) take 7+ seconds — the bottleneck is the
+  // round-trip per file, not the regex work. Batching with Promise.all
+  // saturates the disk queue and brings the scan down to under a second.
+  // Cap concurrency at 64 so we don't open thousands of file descriptors
+  // simultaneously on smaller systems.
+  const READ_CONCURRENCY = 64;
   const occurrences: ConditionTagOccurrence[] = [];
 
-  for (const file of files) {
-    const text = await readTextOrUndefined(file);
-    if (text === undefined) {
-      continue;
-    }
-    const ext = path.extname(file).toLowerCase();
-    if (ext === ".flcts") {
-      // Only rewrite the Name="…" attribute in the file whose basename matches
-      // the set we're renaming inside.
-      if (path.basename(file, ext) === setName) {
-        flctsNameRegex.lastIndex = 0;
-        let match = flctsNameRegex.exec(text);
-        while (match) {
-          const prefix = match[1];
-          const suffix = match[2];
-          const before = `${prefix}${oldTagName}${suffix}`;
-          const after = `${prefix}${newTagName}${suffix}`;
-          const start = match.index;
-          const positionInfo = positionOf(text, start);
-          occurrences.push({
-            filePath: file,
-            start,
-            length: before.length,
-            before,
-            after,
-            context: contextAround(text, start),
-            line: positionInfo.line,
-            column: positionInfo.column
-          });
-          match = flctsNameRegex.exec(text);
+  for (let i = 0; i < files.length; i += READ_CONCURRENCY) {
+    const batch = files.slice(i, i + READ_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (file) => {
+        const text = await readTextOrUndefined(file);
+        if (text === undefined) {
+          return [] as ConditionTagOccurrence[];
         }
-      }
-      continue;
+        return scanFileForOccurrences(
+          file,
+          text,
+          setName,
+          oldTagName,
+          newTagName,
+          oldQualified,
+          newQualified
+        );
+      })
+    );
+    for (const fileOccurrences of results) {
+      occurrences.push(...fileOccurrences);
     }
+  }
 
-    qualifiedRegex.lastIndex = 0;
-    let match = qualifiedRegex.exec(text);
+  return occurrences;
+}
+
+/**
+ * Scans the body of a single file for condition tag occurrences. Pulled
+ * out of `scanProjectForOccurrences` so the per-file regex work can run
+ * in parallel batches without each call sharing mutable RegExp state.
+ *
+ * Each call constructs its own RegExp objects rather than using shared
+ * module-level constants — global regexes (the `g` flag) carry mutable
+ * `lastIndex` state, and concurrent batches calling `.exec()` on the
+ * same RegExp object would corrupt each other's iteration position.
+ */
+function scanFileForOccurrences(
+  filePath: string,
+  text: string,
+  setName: string,
+  oldTagName: string,
+  newTagName: string,
+  oldQualified: string,
+  newQualified: string
+): ConditionTagOccurrence[] {
+  const occurrences: ConditionTagOccurrence[] = [];
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (ext === ".flcts") {
+    // Only rewrite the Name="…" attribute in the file whose basename
+    // matches the set we're renaming inside.
+    if (path.basename(filePath, ext) !== setName) {
+      return occurrences;
+    }
+    const flctsNameRegex = new RegExp(
+      `(<ConditionTag\\b[^>]*\\bName\\s*=\\s*["'])${escapeRegex(oldTagName)}(["'])`,
+      "gi"
+    );
+    let match = flctsNameRegex.exec(text);
     while (match) {
+      const prefix = match[1];
+      const suffix = match[2];
+      const before = `${prefix}${oldTagName}${suffix}`;
+      const after = `${prefix}${newTagName}${suffix}`;
       const start = match.index;
       const positionInfo = positionOf(text, start);
       occurrences.push({
-        filePath: file,
+        filePath,
         start,
-        length: oldQualified.length,
-        before: oldQualified,
-        after: newQualified,
+        length: before.length,
+        before,
+        after,
         context: contextAround(text, start),
         line: positionInfo.line,
         column: positionInfo.column
       });
-      match = qualifiedRegex.exec(text);
+      match = flctsNameRegex.exec(text);
     }
+    return occurrences;
   }
 
+  const qualifiedRegex = new RegExp(
+    `(?<![\\w.])${escapeRegex(oldQualified)}(?![\\w.-])`,
+    "g"
+  );
+  let match = qualifiedRegex.exec(text);
+  while (match) {
+    const start = match.index;
+    const positionInfo = positionOf(text, start);
+    occurrences.push({
+      filePath,
+      start,
+      length: oldQualified.length,
+      before: oldQualified,
+      after: newQualified,
+      context: contextAround(text, start),
+      line: positionInfo.line,
+      column: positionInfo.column
+    });
+    match = qualifiedRegex.exec(text);
+  }
   return occurrences;
 }
 
