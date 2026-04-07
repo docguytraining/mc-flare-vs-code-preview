@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatapultConditionTagSet>
+  <ConditionTag Name="Public" BackgroundColor="#4caf50" Comment="Visible in every public-facing target." />
+  <ConditionTag Name="Internal" BackgroundColor="#ff9800" Comment="Internal review notes — never ships." />
+  <ConditionTag Name="Beta" BackgroundColor="#2196f3" />
+</CatapultConditionTagSet>

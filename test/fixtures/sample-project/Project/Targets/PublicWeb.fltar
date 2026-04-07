@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatapultTarget ConditionExpression="include[Default.Public] AND exclude[Default.Internal]" />
