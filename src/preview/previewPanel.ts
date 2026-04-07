@@ -114,14 +114,17 @@ export class FlarePreviewPanel {
     dataResolver: PreviewDataResolver
   ): Promise<void> {
     if (FlarePreviewPanel.currentPanel) {
-      FlarePreviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
+      // preserveFocus=true keeps the editor active so the author can keep
+      // typing without having to click back into the editor pane after the
+      // keybinding fires.
+      FlarePreviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside, true);
       return FlarePreviewPanel.currentPanel.update(document);
     }
 
     const panel = vscode.window.createWebviewPanel(
       PANEL_VIEW_TYPE,
       "MadCap Flare Preview",
-      vscode.ViewColumn.Beside,
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       {
         enableScripts: true,
         enableFindWidget: true,
@@ -159,7 +162,7 @@ export class FlarePreviewPanel {
       existing.panel.dispose();
       return Promise.resolve();
     }
-    existing.panel.reveal(vscode.ViewColumn.Beside);
+    existing.panel.reveal(vscode.ViewColumn.Beside, true);
     return existing.update(document);
   }
 

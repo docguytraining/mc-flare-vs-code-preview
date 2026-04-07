@@ -374,6 +374,27 @@ async function replaceSnippets(
   context: TransformContext,
   warnings: string[]
 ): Promise<string> {
+  // Top-level pass: snippets resolve relative to the current topic, no
+  // visited set (the topic is the entry point and isn't a snippet itself).
+  return expandSnippetsIn(htmlContent, context, warnings, undefined, new Set<string>());
+}
+
+/**
+ * Recursive snippet expansion. Used for both the top-level topic body and
+ * for any snippet body loaded via {@link loadSnippet} that itself contains
+ * `<MadCap:snippet>` references. The `baseDir` argument overrides the path
+ * resolver's default (`context.currentDocument`) so a nested snippet's
+ * relative path is resolved against the *outer snippet's* directory rather
+ * than the topic's. The `visited` set carries the absolute paths of every
+ * snippet currently being expanded so a cycle doesn't infinite loop.
+ */
+async function expandSnippetsIn(
+  htmlContent: string,
+  context: TransformContext,
+  warnings: string[],
+  baseDir: string | undefined,
+  visited: Set<string>
+): Promise<string> {
   let transformed = htmlContent;
 
   transformed = await replaceMatchesAsync(
@@ -381,7 +402,7 @@ async function replaceSnippets(
     SNIPPET_SELF_CLOSING_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings);
+      return loadSnippet(src, context, warnings, baseDir, visited);
     }
   );
 
@@ -390,7 +411,7 @@ async function replaceSnippets(
     SNIPPET_BLOCK_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings);
+      return loadSnippet(src, context, warnings, baseDir, visited);
     }
   );
 
@@ -447,54 +468,101 @@ function shouldRenderCondition(conditionValue: string | undefined): boolean {
   return true;
 }
 
+const MAX_SNIPPET_DEPTH = 32;
+
 async function loadSnippet(
   snippetSource: string | undefined,
   context: TransformContext,
-  warnings: string[]
+  warnings: string[],
+  baseDir: string | undefined,
+  visited: Set<string>
 ): Promise<string> {
   if (!snippetSource) {
     warnings.push("Snippet tag missing src/source attribute.");
     return "<div class=\"madcap-missing-snippet\">[Snippet missing source]</div>";
   }
 
-  const resolvedPath = resolveSnippetPath(snippetSource, context);
+  const resolvedPath = resolveSnippetPath(snippetSource, context, baseDir);
   if (!resolvedPath) {
     warnings.push(`Snippet path could not be resolved: ${snippetSource}`);
     return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
   }
 
+  // Cycle detection. If a snippet eventually references itself (or enters
+  // a chain that loops back to a snippet currently being expanded) we hard-
+  // stop here with a warning instead of stack-overflowing. Also defense in
+  // depth: cap recursion at MAX_SNIPPET_DEPTH so a deeply (legitimately)
+  // nested snippet chain can't run away either.
+  const normalizedPath = path.normalize(resolvedPath);
+  if (visited.has(normalizedPath)) {
+    warnings.push(`Circular snippet reference detected: ${snippetSource}`);
+    return `<div class=\"madcap-missing-snippet\">[Circular snippet: ${escapeHtml(snippetSource)}]</div>`;
+  }
+  if (visited.size >= MAX_SNIPPET_DEPTH) {
+    warnings.push(`Snippet nesting depth exceeded ${MAX_SNIPPET_DEPTH}: ${snippetSource}`);
+    return `<div class=\"madcap-missing-snippet\">[Snippet too deeply nested: ${escapeHtml(snippetSource)}]</div>`;
+  }
+
+  let raw: string;
   try {
     const bytes = await fs.readFile(resolvedPath);
-    const raw = Buffer.from(bytes).toString("utf8");
-    // Substitute variables inside the snippet body before returning. The
-    // variable handler runs *before* the snippet handler in the pipeline,
-    // so by the time the snippet content lands in the topic stream, the
-    // top-level pipeline pass is already past the variable phase. Without
-    // this in-snippet substitution, every <MadCap:variable> reference
-    // inside a snippet would survive to the unsupported-tag fallback and
-    // generate a spurious "Unsupported MadCap tag encountered: variable"
-    // warning. Same risk applies to other handlers (xref, conditionalText)
-    // — but variable references are by far the most common case in real
-    // Flare projects, so we fix that first and accept the lesser surface
-    // for the others as a known limitation.
-    return replaceMadcapVariables(raw, context.variables, warnings);
+    raw = Buffer.from(bytes).toString("utf8");
   } catch {
     warnings.push(`Snippet file missing: ${resolvedPath}`);
     return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
   }
+
+  // Substitute variables inside the snippet body before recursing. The
+  // variable handler in the top-level pipeline runs once on the topic
+  // before the snippet handler, so any <MadCap:variable> references
+  // appearing inside loaded snippet content never get resolved by the
+  // top-level pass and would otherwise reach the unsupported-tag fallback.
+  // (xref and conditionalText inside snippets are still not re-processed —
+  // see the known limitation above.)
+  let processed = replaceMadcapVariables(raw, context.variables, warnings);
+
+  // Recursively expand any nested <MadCap:snippet> / <MadCap:snippetBlock> /
+  // <MadCap:snippetText> references inside this snippet body. The recursion
+  // uses *this* snippet's directory as the base path so nested relative
+  // references resolve correctly (e.g. "../sn-tip.flsnp" inside a snippet
+  // resolves relative to the snippet's folder, not the topic's). The
+  // visited set is forked per-branch so two snippets can both legitimately
+  // reference the same shared sub-snippet without false-positive cycle
+  // warnings.
+  const nextVisited = new Set(visited);
+  nextVisited.add(normalizedPath);
+  const nextBaseDir = path.dirname(resolvedPath);
+  processed = await expandSnippetsIn(processed, context, warnings, nextBaseDir, nextVisited);
+
+  return processed;
 }
 
-function resolveSnippetPath(source: string, context: TransformContext): string | undefined {
+/**
+ * Resolves a snippet `src` attribute to an absolute filesystem path.
+ *
+ *   - Absolute paths are returned as-is.
+ *   - Relative paths are tried first against `baseDir` (the directory of
+ *     the *containing* file — either the current topic for top-level
+ *     snippets, or the parent snippet's directory for nested snippets) and
+ *     then against the project root.
+ *   - When `baseDir` is undefined (top-level call), it defaults to the
+ *     directory of the current topic.
+ */
+function resolveSnippetPath(
+  source: string,
+  context: TransformContext,
+  baseDir: string | undefined
+): string | undefined {
   const normalized = source.replace(/\\/g, "/");
 
   if (path.isAbsolute(normalized)) {
     return normalized;
   }
 
-  const documentDir = path.dirname(context.currentDocument.fsPath);
-  const candidateFromDoc = path.resolve(documentDir, normalized);
-  if (pathExists(candidateFromDoc)) {
-    return candidateFromDoc;
+  const effectiveBase = baseDir ?? path.dirname(context.currentDocument.fsPath);
+  const candidateFromBase = path.resolve(effectiveBase, normalized);
+  if (pathExists(candidateFromBase)) {
+    return candidateFromBase;
   }
 
   if (context.projectContext) {
@@ -504,7 +572,7 @@ function resolveSnippetPath(source: string, context: TransformContext): string |
     }
   }
 
-  return candidateFromDoc;
+  return candidateFromBase;
 }
 
 function pathExists(candidate: string): boolean {
