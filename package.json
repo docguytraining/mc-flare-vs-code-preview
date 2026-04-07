@@ -4,19 +4,23 @@
   "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering of variables, snippets, conditionals, and stylesheets.",
   "version": "0.1.0",
   "publisher": "DocGuyTraining",
+  "author": {
+    "name": "DocGuy Training"
+  },
   "license": "MIT",
+  "icon": "media/icon.png",
   "private": true,
   "engines": {
     "vscode": "^1.95.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/paulpehrson/mc-flare-vs-code-preview.git"
+    "url": "https://github.com/docguytraining/mc-flare-vs-code-preview.git"
   },
   "bugs": {
-    "url": "https://github.com/paulpehrson/mc-flare-vs-code-preview/issues"
+    "url": "https://github.com/docguytraining/mc-flare-vs-code-preview/issues"
   },
-  "homepage": "https://github.com/paulpehrson/mc-flare-vs-code-preview#readme",
+  "homepage": "https://github.com/docguytraining/mc-flare-vs-code-preview#readme",
   "categories": [
     "Other",
     "Visualization"
