@@ -6,7 +6,7 @@ import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { logError, logInfo } from "../core/logger";
-import { applyEditAndCleanUpTabs } from "./applyAndCloseHelper";
+import { applyEditAndCleanUpTabs, captureOpenTabPaths } from "./applyAndCloseHelper";
 
 const SKIP_DIRECTORIES = new Set([
   "Output",
@@ -77,6 +77,13 @@ async function runRenameConditionTagCommand(
   projectResolver: FlareProjectResolver,
   conditionTagIndex: ConditionTagIndex
 ): Promise<void> {
+  // Snapshot tabs at the very start, before any document loading. The
+  // helper later uses this to decide which tabs to close — anything
+  // opened by `openTextDocument` calls during the rename should NOT be
+  // in this set, otherwise the close logic will preserve them as if
+  // the user had them open before the command ran.
+  const tabsBeforeRename = captureOpenTabPaths();
+
   const editor = vscode.window.activeTextEditor;
   let projectContext: FlareProjectContext | undefined;
   if (editor) {
@@ -251,7 +258,8 @@ async function runRenameConditionTagCommand(
   // affected file (68+ for a tag like Default.NEVER_USE in a real
   // project) which they have to manually save and close.
   const result = await applyEditAndCleanUpTabs(edit, {
-    progressTitle: `Flare: Renaming ${oldQualified} → ${newQualified}…`
+    progressTitle: `Flare: Renaming ${oldQualified} → ${newQualified}…`,
+    previouslyOpenPaths: tabsBeforeRename
   });
 
   if (result.applied) {

@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { logError, logInfo } from "../core/logger";
-import { applyEditAndCleanUpTabs } from "./applyAndCloseHelper";
+import { applyEditAndCleanUpTabs, captureOpenTabPaths } from "./applyAndCloseHelper";
 import {
   FileRename,
   isExternal,
@@ -124,6 +124,13 @@ export function registerRenameReferencesHandler(
   projectResolver: FlareProjectResolver
 ): vscode.Disposable {
   const renameDisposable = vscode.workspace.onDidRenameFiles(async (event) => {
+    // Snapshot tabs at the very start of the rename event handler, before
+    // any document loading happens. The helper later uses this set to
+    // decide which tabs to close — without an early snapshot, any tab
+    // surfaced by the rename's own openTextDocument calls would end up
+    // wrongly classified as "user already had it open".
+    const tabsBeforeRename = captureOpenTabPaths();
+
     const renames: FileRename[] = [];
     for (const { oldUri, newUri } of event.files) {
       if (oldUri.scheme !== "file" || newUri.scheme !== "file") {
@@ -162,7 +169,7 @@ export function registerRenameReferencesHandler(
         if (affected.length === 0) {
           continue;
         }
-        await runRenamePicker(affected);
+        await runRenamePicker(affected, tabsBeforeRename);
       } catch (error) {
         logError("Rename references scan failed", error);
       }
@@ -344,7 +351,10 @@ async function scanForStaleReferences(projectRoot: string): Promise<AffectedRefe
   return stale;
 }
 
-async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
+async function runRenamePicker(
+  affected: AffectedReference[],
+  tabsBeforeRename: Set<string>
+): Promise<void> {
   const items: QuickPickReferenceItem[] = affected.map((reference) => ({
     label: `$(file) ${path.basename(reference.filePath)}`,
     description: `${reference.line + 1}:${reference.column + 1}`,
@@ -390,7 +400,8 @@ async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
   // close each one — same bug we just fixed in the rename condition tag
   // command.
   const result = await applyEditAndCleanUpTabs(edit, {
-    progressTitle: `Flare: Updating ${picks.length} reference(s)…`
+    progressTitle: `Flare: Updating ${picks.length} reference(s)…`,
+    previouslyOpenPaths: tabsBeforeRename
   });
   if (result.applied) {
     logInfo(`Rewrote ${picks.length} reference(s) across ${byFile.size} file(s).`);
