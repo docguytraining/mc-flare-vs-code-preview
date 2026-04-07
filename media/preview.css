@@ -59,13 +59,15 @@ body.flare-preview-body {
 }
 
 .flare-preview-summary,
-.flare-preview-diagnostics {
+.flare-preview-diagnostics,
+.flare-preview-conditions {
   color: var(--vscode-editor-foreground);
   font-family: var(--vscode-font-family);
 }
 
 .flare-preview-summary h2,
-.flare-preview-diagnostics h2 {
+.flare-preview-diagnostics h2,
+.flare-preview-conditions h2 {
   font-size: 0.95rem;
   margin: 0.75rem 0 0.25rem;
   color: var(--vscode-editor-foreground);
@@ -75,15 +77,34 @@ body.flare-preview-body {
   font-weight: 600;
 }
 
+.flare-preview-conditions h3 {
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0.25rem;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.flare-preview-conditions p {
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  margin: 0.25rem 0;
+}
+
 .flare-preview-summary ul,
-.flare-preview-diagnostics ul {
+.flare-preview-diagnostics ul,
+.flare-preview-conditions ul {
   margin: 0.25rem 0 0.5rem 1rem;
   padding: 0;
   list-style: disc;
 }
 
 .flare-preview-summary li,
-.flare-preview-diagnostics li {
+.flare-preview-diagnostics li,
+.flare-preview-conditions li {
   margin: 0.1rem 0;
   color: var(--vscode-editor-foreground);
 }
@@ -261,10 +282,6 @@ button.flare-target-picker:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
-.flare-preview-conditions h2 {
-  margin-bottom: 0.4rem;
-}
-
 .condition-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -274,12 +291,22 @@ button.flare-target-picker:hover {
 .condition-column h3 {
   margin: 0 0 0.3rem 0;
   font-size: 1em;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
   opacity: 0.85;
 }
 
 .condition-column ul {
   margin: 0;
   padding-left: 1.2rem;
+  list-style: disc;
+}
+
+.condition-column li {
+  color: var(--vscode-editor-foreground);
 }
 
 button.flare-condition-row {
@@ -287,7 +314,7 @@ button.flare-condition-row {
   align-items: baseline;
   gap: 0.4rem;
   background: transparent;
-  color: inherit;
+  color: var(--vscode-editor-foreground);
   border: 1px solid transparent;
   padding: 1px 6px;
   margin: 0;
@@ -304,18 +331,21 @@ button.flare-condition-row:hover {
 
 button.flare-condition-row code {
   background: transparent;
+  color: var(--vscode-editor-foreground);
   padding: 0;
 }
 
 .condition-count {
   opacity: 0.65;
   font-size: 0.85em;
+  color: var(--vscode-editor-foreground);
 }
 
 .condition-hidden-note {
   opacity: 0.85;
   font-style: italic;
   margin: 0.2rem 0 0.6rem 0;
+  color: var(--vscode-editor-foreground);
 }
 
 .madcap-condition-badge {
