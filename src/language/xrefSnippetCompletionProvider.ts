@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-const KEYWORDS = ["xref", "cond", "cblock"] as const;
+const KEYWORDS = ["xref", "cond", "cblock", "snip", "snipblock"] as const;
 
 /**
  * Static snippet completions surfaced by normal IntelliSense — `xref`, `cond`,
@@ -39,6 +39,10 @@ function describe(keyword: typeof KEYWORDS[number]): string {
       return "Insert MadCap:conditions=\"…\" attribute";
     case "cblock":
       return "Wrap content in <MadCap:conditionalBlock>";
+    case "snip":
+      return "Insert inline <MadCap:snippet src=\"…\" />";
+    case "snipblock":
+      return "Insert block <MadCap:snippetBlock src=\"…\" />";
   }
 }
 
@@ -52,6 +56,10 @@ function snippetFor(keyword: typeof KEYWORDS[number]): vscode.SnippetString {
       return new vscode.SnippetString(
         '<MadCap:conditionalBlock MadCap:conditions="$1">\n  $0\n</MadCap:conditionalBlock>'
       );
+    case "snip":
+      return new vscode.SnippetString('<MadCap:snippet src="$1" />$0');
+    case "snipblock":
+      return new vscode.SnippetString('<MadCap:snippetBlock src="$1" />$0');
   }
 }
 

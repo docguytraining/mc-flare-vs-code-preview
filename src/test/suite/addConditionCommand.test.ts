@@ -52,4 +52,30 @@ suite("addConditionCommand helpers", () => {
       "<MadCap:dropDown MadCap:conditions=\"Default.Public\" class='foo'/>"
     );
   });
+
+  test("parseConditionList accepts a semicolon-only list", () => {
+    assert.deepStrictEqual(
+      parseConditionList("Default.Public;Default.Internal"),
+      ["Default.Public", "Default.Internal"]
+    );
+  });
+
+  test("rewriteTagWithConditions can encode a comma-joined list onto a fresh tag", () => {
+    const result = rewriteTagWithConditions(
+      "<p>",
+      "Default.Public,Default.Internal"
+    );
+    assert.strictEqual(
+      result,
+      '<p MadCap:conditions="Default.Public,Default.Internal">'
+    );
+  });
+
+  test("rewriteTagWithConditions overwrites a single-quoted attribute value", () => {
+    const result = rewriteTagWithConditions(
+      "<p MadCap:conditions='Default.Internal'>",
+      "Default.Public"
+    );
+    assert.strictEqual(result, '<p MadCap:conditions="Default.Public">');
+  });
 });

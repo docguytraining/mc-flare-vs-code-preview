@@ -35,7 +35,13 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
 - **`[[` topic picker** — anywhere in flowing prose, type `[[` and IntelliSense opens a project-wide list of every topic. Pick one and the `[[` is replaced with a complete `<MadCap:xref>` tag pointing at the chosen topic, with the heading prefilled as link text.
 - **Convert selection to cross-reference** — select prose, click the lightbulb, choose **Convert to cross-reference…**, and the selection is replaced with a `<MadCap:xref>` whose link text is your original selection. Same project-wide topic picker as the regular Insert command.
-- **Tag-scaffolding snippet completions** — type `xref`, `cond`, or `cblock` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, or `<MadCap:conditionalBlock>` with tab stops in the right places.
+- **Tag-scaffolding snippet completions** — type `xref`, `cond`, `cblock`, `snip`, or `snipblock` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, `<MadCap:conditionalBlock>`, `<MadCap:snippet />`, or `<MadCap:snippetBlock />` with tab stops in the right places.
+
+### Snippet authoring
+- **Insert Snippet command** — opens a project-wide quick pick of every `.flsnp` file under the project root, indexed by name, folder, and a one-line preview of the snippet body. Inserts `<MadCap:snippetBlock src="…" />` at the cursor with a portable forward-slash path computed relative to the topic.
+- **`{{` snippet picker** — anywhere in flowing prose, type `{{` and IntelliSense opens the same project-wide snippet list. Pick one and the `{{` is replaced with a complete `<MadCap:snippetBlock>` tag pointing at the chosen snippet. Sibling to the `[[` cross-reference picker.
+- **Snippet `src` completion** — typing inside `<MadCap:snippet src="…">`, `<MadCap:snippetBlock src="…">`, or `<MadCap:snippetText src="…">` lists every project snippet, ranked by path, with the body preview surfaced in the docs panel.
+- **Extract selection as snippet** — select repeated prose, click the lightbulb, choose **Extract selection as snippet…**, and the toolkit prompts for a name and a destination folder under `Content/Resources/Snippets/`, creates the new `.flsnp` file with the canonical Flare skeleton, and replaces the selection with a `<MadCap:snippetBlock src="…" />` reference. Everything is one undo step. Selections that contain unbalanced markup are rejected so the parent topic can't be corrupted.
 
 ### Conditional text and target picker
 
@@ -73,6 +79,8 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 | `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | Command Palette |
 | `flare.findStaleReferences` | **Flare Toolkit: Find Stale References** | Command Palette |
 | `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | Command Palette |
+| `flare.insertSnippet` | **Flare Toolkit: Insert Snippet** | Command Palette, editor context menu |
+| `flare.extractSelectionAsSnippet` | **Flare Toolkit: Extract Selection as Snippet…** | Command Palette, lightbulb on a non-empty selection |
 
 ## Configuration
 
@@ -193,6 +201,32 @@ Goal: turn the words "API reference" in your prose into a clickable link to the 
 4. The toolkit replaces your selection with `<MadCap:xref href="…">API reference</MadCap:xref>` — same href format as the regular Insert command, but the link text is whatever you originally selected.
 
 Faster path: in the middle of writing prose, type `[[`. The completion popup opens the same topic picker; accepting an item erases the `[[` and inserts the full `<MadCap:xref>` tag, with the topic's `<h1>` prefilled as the link text.
+
+### Insert an existing snippet into a topic
+
+Goal: drop a `<MadCap:snippetBlock>` reference to an existing `.flsnp` file at the cursor, without retyping the path.
+
+The toolkit gives you four equivalent entry points — pick whichever feels natural in the moment:
+
+1. **Command palette / context menu.** Run **Flare Toolkit: Insert Snippet** (also available in the right-click menu inside any `.htm`/`.html` file). A project-wide quick pick lists every `.flsnp` under the project root, indexed by name, relative path, and a one-line preview of the snippet body. Type to filter — matches against any of the three. Pick one and the toolkit inserts `<MadCap:snippetBlock src="…" />` at the cursor with a forward-slash relative path computed from the active topic.
+2. **`{{` trigger in prose.** Type two left braces (`{{`) anywhere in flowing prose. IntelliSense opens the same project-wide snippet list. Picking an item erases the `{{` and inserts the full `<MadCap:snippetBlock>` tag, with the snippet name and folder shown in the picker. Sibling to the `[[` cross-reference picker — same shape, different prefix.
+3. **Tag attribute completion.** Type `<MadCap:snippetBlock src="` (or `<MadCap:snippet src="`, or `<MadCap:snippetText src="`) and IntelliSense lists every project snippet ranked by path. The body preview shows in the docs panel so you can see what each snippet contains before picking.
+4. **Tag-scaffolding keyword.** In an empty spot, type `snipblock` (block-level) or `snip` (inline) and IntelliSense expands it to `<MadCap:snippetBlock src="$1" />` or `<MadCap:snippet src="$1" />` with the cursor parked inside the `src` attribute, ready for entry point #3 above.
+
+All four routes resolve to the same XML — they're alternative entry points so you don't have to remember which one is "the" way to insert a snippet.
+
+### Extract repeated prose into a new snippet
+
+Goal: turn a paragraph you keep retyping into a `.flsnp` file in one step, without leaving the editor.
+
+1. Select the prose you want to lift out. The toolkit accepts any selection that contains balanced markup (or no markup at all) — selections that cut through a tag are rejected so the parent topic stays well-formed.
+2. Click the lightbulb (or press `Ctrl/Cmd+.`) and choose **Extract selection as snippet…**.
+3. Enter a snippet name when prompted. The toolkit normalizes the input into a kebab-case slug (`installation prereqs` → `installation-prereqs`) and rejects empty / reserved / unsafe names with an inline validation error.
+4. Pick a destination folder. The list shows the project's snippets root (`Content/Resources/Snippets`) plus every existing subfolder under it, plus a **Create new subfolder…** option for fresh organization.
+5. The toolkit applies a single `WorkspaceEdit`: it creates `Content/Resources/Snippets/<folder>/<name>.flsnp` with the canonical Flare skeleton (`<?xml…?>` + `<html xmlns:MadCap="…">` + `<body>` containing your selection, with the leading indentation stripped), and replaces your original selection with `<MadCap:snippetBlock src="…" />` (or `<MadCap:snippet src="…" />` for inline selections). The whole rewrite is one undo step.
+6. The new `.flsnp` file opens in a side editor for review.
+
+If a file with the same name already exists in the chosen folder, the toolkit asks before overwriting — never silently clobbers.
 
 ### Add a condition to an existing element
 

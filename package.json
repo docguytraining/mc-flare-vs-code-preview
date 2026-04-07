@@ -104,6 +104,16 @@
         "title": "Add Condition to Element…",
         "category": "Flare Toolkit",
         "enablement": "false"
+      },
+      {
+        "command": "flare.insertSnippet",
+        "title": "Insert Snippet",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.extractSelectionAsSnippet",
+        "title": "Extract Selection as Snippet…",
+        "category": "Flare Toolkit"
       }
     ],
     "menus": {
@@ -117,6 +127,11 @@
       "editor/context": [
         {
           "command": "flare.insertXref",
+          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "group": "1_modification"
+        },
+        {
+          "command": "flare.insertSnippet",
           "when": "resourceExtname == .htm || resourceExtname == .html",
           "group": "1_modification"
         }

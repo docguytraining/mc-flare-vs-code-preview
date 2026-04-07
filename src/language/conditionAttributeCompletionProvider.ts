@@ -56,12 +56,18 @@ function buildItem(name: string, description: string): vscode.CompletionItem {
  * Returns true when the cursor sits inside an opening tag's attribute area —
  * i.e. there is an unclosed `<` on the current line whose tag name has
  * already been typed and we are now in whitespace where attributes go.
+ *
+ * Exported for unit tests.
  */
-function cursorIsInOpeningTagAttributeArea(
+export function cursorIsInOpeningTagAttributeArea(
   document: vscode.TextDocument,
   position: vscode.Position
 ): boolean {
-  const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
+  return isAttributeArea(document.lineAt(position.line).text.slice(0, position.character));
+}
+
+/** Pure-string variant of {@link cursorIsInOpeningTagAttributeArea}. */
+export function isAttributeArea(linePrefix: string): boolean {
   const lastOpen = linePrefix.lastIndexOf("<");
   const lastClose = linePrefix.lastIndexOf(">");
   if (lastOpen <= lastClose) {
