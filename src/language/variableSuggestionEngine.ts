@@ -200,6 +200,13 @@ function buildReverseLookup(
 
   const map = new Map<string, string>();
   for (const [name, value] of variables.entries()) {
+    // Only use qualified variable names (Set.Name) in suggestions. Bare names
+    // are ambiguous when multiple variable sets define the same variable name,
+    // and using them can result in broken references.
+    if (!name.includes(".")) {
+      continue;
+    }
+
     const trimmed = value.trim();
     if (ignoredValues.has(trimmed)) {
       continue;

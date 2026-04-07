@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 const COMMAND = "flare.addConditionToElement";
 
@@ -21,7 +22,7 @@ export class AddConditionCodeActionProvider implements vscode.CodeActionProvider
     document: vscode.TextDocument,
     range: vscode.Range | vscode.Selection
   ): vscode.CodeAction[] | undefined {
-    if (!isFlareTopic(document)) {
+    if (!isFlareDocument(document)) {
       return undefined;
     }
     const tagInfo = findEnclosingOpeningTag(document, range.start);
@@ -108,7 +109,3 @@ export function findEnclosingOpeningTag(
   };
 }
 
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
-}

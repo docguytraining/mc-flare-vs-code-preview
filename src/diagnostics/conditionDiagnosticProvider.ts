@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { parseConditionsAttribute } from "../flare/conditionExpression";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 const DIAGNOSTIC_SOURCE = "flare";
 const DIAGNOSTIC_CODE = "flare.condition-unresolved";
@@ -26,7 +27,7 @@ export class ConditionDiagnosticProvider {
   ) {}
 
   public async validate(document: vscode.TextDocument): Promise<void> {
-    if (!isFlareTopic(document)) {
+    if (!isFlareDocument(document)) {
       return;
     }
     const projectContext = await this.projectResolver
@@ -100,9 +101,4 @@ export class ConditionDiagnosticProvider {
 
 function looksLikeBareTag(value: string): boolean {
   return /^[A-Za-z_][\w-]*\.[A-Za-z_][\w-]*$/.test(value);
-}
-
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
 }

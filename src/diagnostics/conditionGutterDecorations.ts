@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { parseConditionsAttribute } from "../flare/conditionExpression";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 const CONDITIONS_ATTR_REGEX =
   /\b(?:MadCap:conditions|MadCap:conditionTagExpression)\s*=\s*(["'])([^"']*)\1/gi;
@@ -71,7 +72,7 @@ export class ConditionGutterDecorations implements vscode.Disposable {
   }
 
   public async refresh(editor: vscode.TextEditor): Promise<void> {
-    if (!isFlareTopic(editor.document)) {
+    if (!isFlareDocument(editor.document)) {
       return;
     }
 
@@ -265,11 +266,6 @@ export function svgGutterDataUri(color: string): string {
   const safeColor = normalizeColor(color);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" ry="2" fill="${safeColor}" stroke="#0006" stroke-width="1"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
 }
 
 function readEnabledSetting(): boolean {

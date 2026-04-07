@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectContext, TransformResult } from "../core/types";
-import { ConditionExpression, alwaysRender } from "./conditionExpression";
+import { ConditionExpression, alwaysRender, parseTargetExpression } from "./conditionExpression";
 import { applyConditions } from "./conditionRenderer";
 
 export interface TransformContext {
@@ -483,7 +483,8 @@ async function expandSnippetsIn(
     SNIPPET_SELF_CLOSING_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings, baseDir, visited);
+      const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
+      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
     }
   );
 
@@ -492,7 +493,8 @@ async function expandSnippetsIn(
     SNIPPET_BLOCK_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings, baseDir, visited);
+      const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
+      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
     }
   );
 
@@ -556,7 +558,8 @@ async function loadSnippet(
   context: TransformContext,
   warnings: string[],
   baseDir: string | undefined,
-  visited: Set<string>
+  visited: Set<string>,
+  conditionExpression: string | undefined = undefined
 ): Promise<string> {
   if (!snippetSource) {
     warnings.push("Snippet tag missing src/source attribute.");
@@ -614,6 +617,19 @@ async function loadSnippet(
   nextVisited.add(normalizedPath);
   const nextBaseDir = path.dirname(resolvedPath);
   processed = await expandSnippetsIn(processed, context, warnings, nextBaseDir, nextVisited);
+
+  // If the snippet include element has a MadCap:conditionTagExpression attribute,
+  // apply that expression to filter the snippet's content. This allows authors to
+  // conditionally show/hide parts of a snippet based on the build target without
+  // modifying the snippet file itself.
+  if (conditionExpression) {
+    const expression = parseTargetExpression(conditionExpression);
+    const result = applyConditions(processed, {
+      expression,
+      showBadges: context.showConditionBadges ?? false
+    });
+    processed = result.html;
+  }
 
   return processed;
 }
