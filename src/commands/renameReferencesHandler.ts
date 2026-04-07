@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { logError, logInfo } from "../core/logger";
+import { applyEditAndCleanUpTabs } from "./applyAndCloseHelper";
 import {
   FileRename,
   isExternal,
@@ -383,8 +384,15 @@ async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
     }
   }
 
-  const applied = await vscode.workspace.applyEdit(edit);
-  if (applied) {
+  // Apply, save, and clean up tabs in one helper call. Without it the user
+  // ends up with one dirty unsaved tab per affected file (potentially
+  // dozens for a real cross-project rename) and has to manually save and
+  // close each one — same bug we just fixed in the rename condition tag
+  // command.
+  const result = await applyEditAndCleanUpTabs(edit, {
+    progressTitle: `Flare: Updating ${picks.length} reference(s)…`
+  });
+  if (result.applied) {
     logInfo(`Rewrote ${picks.length} reference(s) across ${byFile.size} file(s).`);
     vscode.window.showInformationMessage(
       `Flare: updated ${picks.length} reference(s) across ${byFile.size} file(s).`

@@ -6,6 +6,7 @@ import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { logError, logInfo } from "../core/logger";
+import { applyEditAndCleanUpTabs } from "./applyAndCloseHelper";
 
 const SKIP_DIRECTORIES = new Set([
   "Output",
@@ -244,8 +245,16 @@ async function runRenameConditionTagCommand(
     }
   }
 
-  const applied = await vscode.workspace.applyEdit(edit);
-  if (applied) {
+  // Apply the edit, save every modified file, and close any tabs VS Code
+  // opened for files the user didn't already have open. Without this
+  // helper the rename leaves the user with one dirty unsaved tab per
+  // affected file (68+ for a tag like Default.NEVER_USE in a real
+  // project) which they have to manually save and close.
+  const result = await applyEditAndCleanUpTabs(edit, {
+    progressTitle: `Flare: Renaming ${oldQualified} → ${newQualified}…`
+  });
+
+  if (result.applied) {
     logInfo(
       `Renamed condition tag ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
     );
