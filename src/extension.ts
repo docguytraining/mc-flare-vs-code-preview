@@ -294,7 +294,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      await FlarePreviewPanel.show(context.extensionUri, document, buildPreviewData);
+      await FlarePreviewPanel.toggleOrShow(context.extensionUri, document, buildPreviewData);
     }
   );
 

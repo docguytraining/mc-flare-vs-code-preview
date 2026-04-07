@@ -71,16 +71,18 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 
 All commands are listed under the **Flare Toolkit** category in the Command Palette.
 
-| Command | Palette title | Where |
-|---|---|---|
-| `flare.previewHtml` | **Flare Toolkit: Live Preview** | Editor title bar icon (`.htm` / `.html`), Command Palette, Explorer context menu |
-| `flare.insertXref` | **Flare Toolkit: Insert Cross-Reference** | Command Palette, editor context menu |
-| `flare.pickPreviewTarget` | **Flare Toolkit: Pick Preview Target** | Command Palette, "Change…" button in preview header |
-| `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | Command Palette |
-| `flare.findStaleReferences` | **Flare Toolkit: Find Stale References** | Command Palette |
-| `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | Command Palette |
-| `flare.insertSnippet` | **Flare Toolkit: Insert Snippet** | Command Palette, editor context menu |
-| `flare.extractSelectionAsSnippet` | **Flare Toolkit: Extract Selection as Snippet…** | Command Palette, lightbulb on a non-empty selection |
+| Command | Palette title | Default keybinding | Where |
+|---|---|---|---|
+| `flare.previewHtml` | **Flare Toolkit: Live Preview** | `Cmd+K P` / `Ctrl+K P` (chord) | Editor title bar (`.htm` / `.html`), Command Palette, Explorer context menu |
+| `flare.insertXref` | **Flare Toolkit: Insert Cross-Reference** | — | Command Palette, editor context menu |
+| `flare.pickPreviewTarget` | **Flare Toolkit: Pick Preview Target** | — | Command Palette, "Change…" button in preview header |
+| `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | — | Command Palette |
+| `flare.findStaleReferences` | **Flare Toolkit: Find Stale References** | — | Command Palette |
+| `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | — | Command Palette |
+| `flare.insertSnippet` | **Flare Toolkit: Insert Snippet** | — | Command Palette, editor context menu |
+| `flare.extractSelectionAsSnippet` | **Flare Toolkit: Extract Selection as Snippet…** | — | Command Palette, lightbulb on a non-empty selection |
+
+The `Live Preview` keybinding is a **chord**: press and hold `Cmd` (or `Ctrl` on Windows/Linux), tap `K`, **release both**, then tap `P` alone. Press once to open the preview side-by-side with the topic; press again on the same topic to close it; press while editing a different topic to switch the preview to the new topic. The keybinding only fires inside `.htm` and `.html` files so it won't collide with other extensions in unrelated editors.
 
 ## Configuration
 

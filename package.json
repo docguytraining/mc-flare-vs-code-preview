@@ -115,6 +115,14 @@
         "category": "Flare Toolkit"
       }
     ],
+    "keybindings": [
+      {
+        "command": "flare.previewHtml",
+        "key": "ctrl+k p",
+        "mac": "cmd+k p",
+        "when": "editorTextFocus && (resourceExtname == .htm || resourceExtname == .html)"
+      }
+    ],
     "menus": {
       "editor/title": [
         {
