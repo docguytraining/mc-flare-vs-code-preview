@@ -118,6 +118,17 @@
         "command": "flare.extractSelectionAsSnippet",
         "title": "Extract Selection as Snippet…",
         "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.insertVariable",
+        "title": "Insert Variable",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.replaceSelectionWithVariable",
+        "title": "Replace Selection with Variable",
+        "category": "Flare Toolkit",
+        "enablement": "false"
       }
     ],
     "keybindings": [
@@ -144,6 +155,11 @@
         },
         {
           "command": "flare.insertSnippet",
+          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "group": "1_modification"
+        },
+        {
+          "command": "flare.insertVariable",
           "when": "resourceExtname == .htm || resourceExtname == .html",
           "group": "1_modification"
         }

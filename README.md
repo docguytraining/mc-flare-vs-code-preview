@@ -35,13 +35,19 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
 - **`[[` topic picker** — anywhere in flowing prose, type `[[` and IntelliSense opens a project-wide list of every topic. Pick one and the `[[` is replaced with a complete `<MadCap:xref>` tag pointing at the chosen topic, with the heading prefilled as link text.
 - **Convert selection to cross-reference** — select prose, click the lightbulb, choose **Convert to cross-reference…**, and the selection is replaced with a `<MadCap:xref>` whose link text is your original selection. Same project-wide topic picker as the regular Insert command.
-- **Tag-scaffolding snippet completions** — type `xref`, `cond`, `cblock`, `snip`, or `snipblock` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, `<MadCap:conditionalBlock>`, `<MadCap:snippet />`, or `<MadCap:snippetBlock />` with tab stops in the right places.
+- **Tag-scaffolding snippet completions** — type `xref`, `cond`, `cblock`, `snip`, `snipblock`, or `var` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, `<MadCap:conditionalBlock>`, `<MadCap:snippet />`, `<MadCap:snippetBlock />`, or `<MadCap:variable />` with tab stops in the right places.
 
 ### Snippet authoring
 - **Insert Snippet command** — opens a project-wide quick pick of every `.flsnp` file under the project root, indexed by name, folder, and a one-line preview of the snippet body. Inserts `<MadCap:snippetBlock src="…" />` at the cursor with a portable forward-slash path computed relative to the topic.
 - **`{{` snippet picker** — anywhere in flowing prose, type `{{` and IntelliSense opens the same project-wide snippet list. Pick one and the `{{` is replaced with a complete `<MadCap:snippetBlock>` tag pointing at the chosen snippet. Sibling to the `[[` cross-reference picker.
 - **Snippet `src` completion** — typing inside `<MadCap:snippet src="…">`, `<MadCap:snippetBlock src="…">`, or `<MadCap:snippetText src="…">` lists every project snippet, ranked by path, with the body preview surfaced in the docs panel.
 - **Extract selection as snippet** — select repeated prose, click the lightbulb, choose **Extract selection as snippet…**, and the toolkit prompts for a name and a destination folder under `Content/Resources/Snippets/`, creates the new `.flsnp` file with the canonical Flare skeleton, and replaces the selection with a `<MadCap:snippetBlock src="…" />` reference. Everything is one undo step. Selections that contain unbalanced markup are rejected so the parent topic can't be corrupted.
+
+### Variable authoring
+- **Insert Variable command** — opens a project-wide quick pick of every `.flvar` variable, labeled by qualified `Set.Name` with the resolved value in the description and the source `.flvar` file in the detail. Matches on name, value, and source file. Inserts `<MadCap:variable name="Set.Name" />` at the cursor. Available in the Command Palette and the editor right-click menu.
+- **`@@` variable picker** — anywhere in flowing prose, type `@@` and IntelliSense opens the same project-wide variable list. Each item filters on both the qualified name and the value, so typing either gets you to the right variable. Picking an item erases the `@@` and inserts the full `<MadCap:variable>` tag. Sibling to the `[[` cross-reference picker and the `{{` snippet picker — three siblings, three primitives.
+- **`var` tag-scaffolding keyword** — in an empty spot, type `var` and IntelliSense expands it to `<MadCap:variable name="$1" />` with the cursor parked inside the `name` attribute, ready for the existing variable-name completion.
+- **Replace selection with variable** — select any plain-text literal whose trimmed text matches a known variable value, click the lightbulb, and choose **Replace with `<MadCap:variable …>`**. When several variables share the same value, a quick pick disambiguates. Unlike the automatic literal-match suggestions this is manual-only — it bypasses the `suggestVariableReplacements` gate, the minimum-length heuristic, and the dismissal lists, so it's the right tool for short literals and for authors who keep the automatic suggestions off.
 
 ### Conditional text and target picker
 
@@ -81,6 +87,7 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 | `flare.renameConditionTag` | **Flare Toolkit: Rename Condition Tag…** | — | Command Palette |
 | `flare.insertSnippet` | **Flare Toolkit: Insert Snippet** | — | Command Palette, editor context menu |
 | `flare.extractSelectionAsSnippet` | **Flare Toolkit: Extract Selection as Snippet…** | — | Command Palette, lightbulb on a non-empty selection |
+| `flare.insertVariable` | **Flare Toolkit: Insert Variable** | Command Palette, editor context menu |
 
 The `Live Preview` keybinding is a **chord**: press and hold `Cmd` (or `Ctrl` on Windows/Linux), tap `K`, **release both**, then tap `P` alone. Press once to open the preview side-by-side with the topic; press again on the same topic to close it; press while editing a different topic to switch the preview to the new topic. The keybinding only fires inside `.htm` and `.html` files so it won't collide with other extensions in unrelated editors.
 
@@ -230,6 +237,21 @@ Goal: turn a paragraph you keep retyping into a `.flsnp` file in one step, witho
 
 If a file with the same name already exists in the chosen folder, the toolkit asks before overwriting — never silently clobbers.
 
+### Insert a variable reference into a topic
+
+Goal: drop a `<MadCap:variable>` reference at the cursor (or replace an existing literal) without retyping `UI.ProductName` and friends.
+
+The toolkit gives you four equivalent entry points — pick whichever feels natural in the moment:
+
+1. **Command palette / context menu.** Run **Flare Toolkit: Insert Variable** (also available in the right-click menu inside any `.htm`/`.html` file). A project-wide quick pick lists every variable from every `.flvar` file in the project, labeled by qualified `Set.Name` with the resolved value in the description and the source file in the detail. Type to filter — matches against name, value, and source. Pick one and the toolkit inserts `<MadCap:variable name="Set.Name" />` at the cursor.
+2. **`@@` trigger in prose.** Type two at-signs (`@@`) anywhere in flowing prose. IntelliSense opens the same project-wide variable list. Picking an item erases the `@@` and inserts the full `<MadCap:variable>` tag. Sibling to the `[[` cross-reference picker and the `{{` snippet picker — same shape, different prefix.
+3. **Tag attribute completion.** Type `<MadCap:variable name="` and IntelliSense lists every variable in the project (the existing name completion), showing the resolved value in the docs panel.
+4. **Tag-scaffolding keyword.** In an empty spot, type `var` and IntelliSense expands it to `<MadCap:variable name="$1" />` with the cursor parked inside the `name` attribute, ready for entry point #3 above.
+
+All four routes resolve to the same XML.
+
+**Already have the literal text selected?** Select it, click the lightbulb (or press `Ctrl/Cmd+.`), and choose **Replace with `<MadCap:variable …>`**. If exactly one variable matches the selection's trimmed text, the action title names it and the swap happens in one edit; if several variables share the same value, a picker disambiguates. This code action is manual-only — it bypasses the `suggestVariableReplacements` gate and the minimum-length heuristic, so it works for short literals and for authors who keep the automatic suggestions disabled.
+
 ### Add a condition to an existing element
 
 Goal: gate a paragraph you already wrote on a `Default.Internal` build flag, without typing the attribute by hand.
@@ -252,7 +274,7 @@ Goal: catch every broken link, missing snippet, missing image, missing styleshee
 
 ## Roadmap
 
-Phases 1–10 are complete. Phase 10 added the `[[` topic picker, the **Convert selection to cross-reference** code action, the `xref` / `cond` / `cblock` snippet completions, condition attribute-name completion with retrigger, color swatches in the condition value picker, and the **Add condition…** code action. Remaining items rolled forward:
+Phases 1–10 are complete. Phase 10 added the `[[` topic picker, the **Convert selection to cross-reference** code action, the `xref` / `cond` / `cblock` / `snip` / `snipblock` / `var` snippet completions, condition attribute-name completion with retrigger, color swatches in the condition value picker, the **Add condition…** code action, the snippet authoring trio (**Insert Snippet**, `{{` picker, **Extract Selection as Snippet…**), and the variable authoring trio (**Insert Variable**, `@@` picker, **Replace with `<MadCap:variable …>`**). Remaining items rolled forward:
 
 - **Class autocomplete** from project stylesheets.
 
