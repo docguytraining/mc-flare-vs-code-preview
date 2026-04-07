@@ -4,10 +4,12 @@
 src/**
 test/**
 out/test/**
+docs/**
 .eslintrc.*
 eslint.config.*
 tsconfig.json
 .project-plan.md
 *.vsix
+.gitignore
 **/*.map
 **/*.ts

@@ -3,7 +3,7 @@
   "displayName": "MadCap Flare Preview",
   "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering of variables, snippets, conditionals, and stylesheets.",
   "version": "0.1.0",
-  "publisher": "paulpehrson",
+  "publisher": "DocGuyTraining",
   "license": "MIT",
   "private": true,
   "engines": {
