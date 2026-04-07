@@ -5,12 +5,16 @@ import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
 import { TopicIndex } from "./flare/topicIndex";
+import { SnippetIndex } from "./flare/snippetIndex";
 import { ConditionTagIndex } from "./flare/conditionTagIndex";
 import { discoverTargets, SHOW_EVERYTHING_TARGET_ID, TargetEntry } from "./flare/targetIndex";
 import { parseTargetExpression } from "./flare/conditionExpression";
 import { ConditionDiagnosticProvider } from "./diagnostics/conditionDiagnosticProvider";
 import { ConditionGutterDecorations } from "./diagnostics/conditionGutterDecorations";
 import { ConditionCompletionProvider } from "./language/conditionCompletionProvider";
+import { ConditionAttributeCompletionProvider } from "./language/conditionAttributeCompletionProvider";
+import { AddConditionCodeActionProvider } from "./language/addConditionCodeActionProvider";
+import { registerAddConditionCommand } from "./commands/addConditionCommand";
 import { registerRenameReferencesHandler } from "./commands/renameReferencesHandler";
 import { registerRenameConditionTagCommand } from "./commands/renameConditionTagCommand";
 import { registerValidateAllTopicsCommand } from "./commands/validateAllTopicsCommand";
@@ -21,7 +25,18 @@ import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
 import { XrefCompletionProvider } from "./language/xrefCompletionProvider";
 import { LinkValidator } from "./diagnostics/linkValidator";
 import { DismissalStore } from "./diagnostics/dismissalStore";
-import { registerInsertXrefCommand } from "./commands/insertXrefCommand";
+import {
+  registerInsertXrefCommand,
+  registerWrapSelectionAsXrefCommand
+} from "./commands/insertXrefCommand";
+import { XrefBracketCompletionProvider } from "./language/xrefBracketCompletionProvider";
+import { XrefSnippetCompletionProvider } from "./language/xrefSnippetCompletionProvider";
+import { WrapSelectionAsXrefProvider } from "./language/wrapSelectionAsXrefProvider";
+import { SnippetBracketCompletionProvider } from "./language/snippetBracketCompletionProvider";
+import { SnippetSrcCompletionProvider } from "./language/snippetSrcCompletionProvider";
+import { ExtractSnippetCodeActionProvider } from "./language/extractSnippetCodeActionProvider";
+import { registerInsertSnippetCommand } from "./commands/insertSnippetCommand";
+import { registerExtractSnippetCommand } from "./commands/extractSnippetCommand";
 import {
   DiagnosticEntry,
   FlareProjectContext,
@@ -45,6 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
   logInfo("MadCap Flare Preview extension activated.");
   const projectResolver = new FlareProjectResolver();
   const topicIndex = new TopicIndex();
+  const snippetIndex = new SnippetIndex();
   const conditionTagIndex = new ConditionTagIndex();
   const dismissalStore = new DismissalStore();
   const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
@@ -282,11 +298,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  const dependencyWatcher = vscode.workspace.createFileSystemWatcher("**/*.{flprj,flvar,css,flcts,fltar}");
+  const dependencyWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/*.{flprj,flvar,css,flcts,fltar,flsnp}"
+  );
 
   const onDependencyChanged = (uri: vscode.Uri): void => {
     projectResolver.invalidateForPath(uri.fsPath);
     conditionTagIndex.invalidateForPath(uri.fsPath);
+    snippetIndex.invalidateForPath(uri.fsPath);
     conditionGutter.refreshAll();
     FlarePreviewPanel.refreshCurrent(buildPreviewData);
   };
@@ -460,6 +479,45 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
+  const wrapSelectionAsXrefRegistration = registerWrapSelectionAsXrefCommand(
+    projectResolver,
+    topicIndex
+  );
+
+  const xrefBracketCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new XrefBracketCompletionProvider(projectResolver, topicIndex),
+    "["
+  );
+  const xrefSnippetCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new XrefSnippetCompletionProvider()
+  );
+  const wrapSelectionAsXrefCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new WrapSelectionAsXrefProvider(),
+    WrapSelectionAsXrefProvider.metadata
+  );
+
+  const insertSnippetRegistration = registerInsertSnippetCommand(projectResolver, snippetIndex);
+  const extractSnippetRegistration = registerExtractSnippetCommand(projectResolver, snippetIndex);
+  const snippetBracketCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new SnippetBracketCompletionProvider(projectResolver, snippetIndex),
+    "{"
+  );
+  const snippetSrcCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new SnippetSrcCompletionProvider(projectResolver, snippetIndex),
+    '"',
+    "'",
+    "/"
+  );
+  const extractSnippetCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new ExtractSnippetCodeActionProvider(),
+    ExtractSnippetCodeActionProvider.metadata
+  );
   const validateAllTopicsRegistration = registerValidateAllTopicsCommand(
     projectResolver,
     linkValidator
@@ -476,6 +534,24 @@ export function activate(context: vscode.ExtensionContext): void {
     '"',
     "'",
     ","
+  );
+
+  const conditionAttributeCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new ConditionAttributeCompletionProvider(),
+    " ",
+    ":"
+  );
+
+  const addConditionCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new AddConditionCodeActionProvider(),
+    AddConditionCodeActionProvider.metadata
+  );
+
+  const addConditionCommandRegistration = registerAddConditionCommand(
+    projectResolver,
+    conditionTagIndex
   );
 
   const pickPreviewTargetRegistration = vscode.commands.registerCommand(
@@ -671,8 +747,20 @@ export function activate(context: vscode.ExtensionContext): void {
     variableCompletionRegistration,
     xrefCompletionRegistration,
     conditionCompletionRegistration,
+    conditionAttributeCompletionRegistration,
+    addConditionCodeActionRegistration,
+    addConditionCommandRegistration,
     codeActionRegistration,
     insertXrefRegistration,
+    wrapSelectionAsXrefRegistration,
+    xrefBracketCompletionRegistration,
+    xrefSnippetCompletionRegistration,
+    wrapSelectionAsXrefCodeActionRegistration,
+    insertSnippetRegistration,
+    extractSnippetRegistration,
+    snippetBracketCompletionRegistration,
+    snippetSrcCompletionRegistration,
+    extractSnippetCodeActionRegistration,
     validateAllTopicsRegistration,
     renameReferencesRegistration,
     renameConditionTagRegistration,
