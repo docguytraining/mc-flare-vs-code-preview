@@ -24,6 +24,16 @@ export class XrefSnippetCompletionProvider implements vscode.CompletionItemProvi
       item.detail = describe(keyword);
       item.insertText = snippetFor(keyword);
       item.sortText = `0_${keyword}`;
+      // Every keyword expansion parks the cursor inside an empty attribute
+      // (`href=""`, `conditions=""`, `src=""`). VS Code does NOT auto-fire
+      // IntelliSense in that position, so the author would have to press
+      // Ctrl+Space manually. Re-trigger Suggest after acceptance so the
+      // matching attribute-value provider (xref / condition / snippet src)
+      // takes over without an extra keystroke.
+      item.command = {
+        command: "editor.action.triggerSuggest",
+        title: "Re-trigger suggest"
+      };
       items.push(item);
     }
 
