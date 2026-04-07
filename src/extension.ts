@@ -11,6 +11,9 @@ import { parseTargetExpression } from "./flare/conditionExpression";
 import { ConditionDiagnosticProvider } from "./diagnostics/conditionDiagnosticProvider";
 import { ConditionGutterDecorations } from "./diagnostics/conditionGutterDecorations";
 import { ConditionCompletionProvider } from "./language/conditionCompletionProvider";
+import { ConditionAttributeCompletionProvider } from "./language/conditionAttributeCompletionProvider";
+import { AddConditionCodeActionProvider } from "./language/addConditionCodeActionProvider";
+import { registerAddConditionCommand } from "./commands/addConditionCommand";
 import { registerRenameReferencesHandler } from "./commands/renameReferencesHandler";
 import { registerRenameConditionTagCommand } from "./commands/renameConditionTagCommand";
 import { registerValidateAllTopicsCommand } from "./commands/validateAllTopicsCommand";
@@ -21,7 +24,13 @@ import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
 import { XrefCompletionProvider } from "./language/xrefCompletionProvider";
 import { LinkValidator } from "./diagnostics/linkValidator";
 import { DismissalStore } from "./diagnostics/dismissalStore";
-import { registerInsertXrefCommand } from "./commands/insertXrefCommand";
+import {
+  registerInsertXrefCommand,
+  registerWrapSelectionAsXrefCommand
+} from "./commands/insertXrefCommand";
+import { XrefBracketCompletionProvider } from "./language/xrefBracketCompletionProvider";
+import { XrefSnippetCompletionProvider } from "./language/xrefSnippetCompletionProvider";
+import { WrapSelectionAsXrefProvider } from "./language/wrapSelectionAsXrefProvider";
 import {
   DiagnosticEntry,
   FlareProjectContext,
@@ -460,6 +469,25 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
+  const wrapSelectionAsXrefRegistration = registerWrapSelectionAsXrefCommand(
+    projectResolver,
+    topicIndex
+  );
+
+  const xrefBracketCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new XrefBracketCompletionProvider(projectResolver, topicIndex),
+    "["
+  );
+  const xrefSnippetCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new XrefSnippetCompletionProvider()
+  );
+  const wrapSelectionAsXrefCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new WrapSelectionAsXrefProvider(),
+    WrapSelectionAsXrefProvider.metadata
+  );
   const validateAllTopicsRegistration = registerValidateAllTopicsCommand(
     projectResolver,
     linkValidator
@@ -476,6 +504,24 @@ export function activate(context: vscode.ExtensionContext): void {
     '"',
     "'",
     ","
+  );
+
+  const conditionAttributeCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new ConditionAttributeCompletionProvider(),
+    " ",
+    ":"
+  );
+
+  const addConditionCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new AddConditionCodeActionProvider(),
+    AddConditionCodeActionProvider.metadata
+  );
+
+  const addConditionCommandRegistration = registerAddConditionCommand(
+    projectResolver,
+    conditionTagIndex
   );
 
   const pickPreviewTargetRegistration = vscode.commands.registerCommand(
@@ -671,8 +717,15 @@ export function activate(context: vscode.ExtensionContext): void {
     variableCompletionRegistration,
     xrefCompletionRegistration,
     conditionCompletionRegistration,
+    conditionAttributeCompletionRegistration,
+    addConditionCodeActionRegistration,
+    addConditionCommandRegistration,
     codeActionRegistration,
     insertXrefRegistration,
+    wrapSelectionAsXrefRegistration,
+    xrefBracketCompletionRegistration,
+    xrefSnippetCompletionRegistration,
+    wrapSelectionAsXrefCodeActionRegistration,
     validateAllTopicsRegistration,
     renameReferencesRegistration,
     renameConditionTagRegistration,

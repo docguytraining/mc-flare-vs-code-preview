@@ -2,6 +2,26 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [Unreleased] — Phase 10
+
+Phase 10 focuses on lower-friction authoring entry points for cross-references and conditional text. Nothing in the rendered output changes — every addition is an editor affordance that gets you to the same XML faster.
+
+### Added — cross-reference authoring (`10.1`)
+- **`[[` topic picker.** New `XrefBracketCompletionProvider` fires when the two characters immediately before the cursor are `[[` (and the cursor isn't already inside a tag). Opens a project-wide list of every topic indexed by `<h1>`. Accepting an item erases the `[[` and inserts a complete `<MadCap:xref href="…">link text</MadCap:xref>` snippet pointing at the chosen topic, with the heading prefilled as link text and the cursor positioned to edit it.
+- **Convert selection to cross-reference.** New `WrapSelectionAsXrefProvider` surfaces a `RefactorRewrite` code action whenever the editor has a non-empty plain-text selection inside a Flare topic. Choosing the action runs the new `flare.wrapSelectionAsXref` command, which opens the same project-wide topic picker as `flare.insertXref` and replaces the selection with a `<MadCap:xref>` whose link text is the original selection. Skips selections containing `<` so nothing in markup gets corrupted.
+- **Tag-scaffolding snippet completions.** New `XrefSnippetCompletionProvider` adds three keyword-triggered snippets (`xref`, `cond`, `cblock`) that expand to fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, and `<MadCap:conditionalBlock>` scaffolding with tab stops. No project context required — they're available the moment a Flare topic is opened.
+
+### Added — condition authoring (`10.2`)
+- **Color swatches in the condition value picker.** Existing `ConditionCompletionProvider` items are now `CompletionItemKind.Color` when the matching `.flcts` entry has a parseable hex `BackgroundColor`. VS Code paints a small swatch next to each entry so the picker is visually scannable.
+- **Retrigger after accept.** Every condition completion item now sets a `command` of `editor.action.triggerSuggest`, so picking a tag immediately re-fires IntelliSense. Combined with the existing `,` trigger character, this lets authors chain comma-separated condition lists without retyping.
+- **Attribute-name completion.** New `ConditionAttributeCompletionProvider` surfaces `MadCap:conditions` and `MadCap:conditionTagExpression` as completion items when the cursor is inside an opening tag's attribute area. Accepting one inserts `MadCap:conditions="$1"$0` and immediately re-triggers IntelliSense so the value picker fires without an extra keystroke.
+- **"Add condition…" code action.** New `AddConditionCodeActionProvider` offers a `RefactorRewrite` action on any opening tag in a Flare topic. Choosing it runs the new `flare.addConditionToElement` command, which opens a multi-select quick pick of every project condition tag (with any tags already on the element pre-checked) and rewrites the tag in a single edit. The command accepts the existing attribute value and merges/dedupes new picks against it, so re-running the action on an already-conditioned element extends the list rather than replacing it.
+
+### Tests
+- `addConditionCommand.test.ts` covers the pure helpers (`parseConditionList`, `rewriteTagWithConditions`): comma/semicolon splitting, empty-entry filtering, namespaced/self-closing tag rewriting, and in-place attribute replacement.
+- `addConditionCodeActionProvider.test.ts` covers `findEnclosingOpeningTag`: plain elements, existing-conditions extraction, plain text outside tags, closing tags, and HTML comments.
+- `wrapSelectionAsXref.test.ts` covers `WrapSelectionAsXrefProvider` (offers action for plain selection, rejects empty/markup/whitespace-only) and `XrefSnippetCompletionProvider` (returns the three keyword snippets for `.htm` topics, returns nothing for non-Flare documents).
+
 ## [Unreleased] — Phase 9
 
 Phase 9 adds five connected pieces of authoring support: condition tag indexing, conditional text rendering with a target picker, condition autocomplete and validation, snippet condition discovery, and cross-project rename references. Plus a `Validate All Topics` command and a `Find Stale References` command.

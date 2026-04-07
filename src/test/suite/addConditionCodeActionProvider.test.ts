@@ -1,0 +1,44 @@
+import * as assert from "node:assert";
+import * as vscode from "vscode";
+import { findEnclosingOpeningTag } from "../../language/addConditionCodeActionProvider";
+
+async function openHtmlDoc(content: string): Promise<vscode.TextDocument> {
+  return vscode.workspace.openTextDocument({ language: "html", content });
+}
+
+suite("findEnclosingOpeningTag", () => {
+  test("returns the opening tag and no existing conditions for a plain element", async () => {
+    const doc = await openHtmlDoc('<p class="intro">Hello world</p>');
+    const result = findEnclosingOpeningTag(doc, new vscode.Position(0, 20));
+    assert.ok(result);
+    assert.strictEqual(doc.getText(result!.tagRange), '<p class="intro">');
+    assert.strictEqual(result!.existingConditions, undefined);
+  });
+
+  test("extracts an existing MadCap:conditions value", async () => {
+    const doc = await openHtmlDoc(
+      '<p MadCap:conditions="Default.Public">Hello</p>'
+    );
+    const result = findEnclosingOpeningTag(doc, new vscode.Position(0, 40));
+    assert.ok(result);
+    assert.strictEqual(result!.existingConditions, "Default.Public");
+  });
+
+  test("returns undefined when the cursor is in plain text outside any tag", async () => {
+    const doc = await openHtmlDoc("Just some prose without markup.");
+    const result = findEnclosingOpeningTag(doc, new vscode.Position(0, 5));
+    assert.strictEqual(result, undefined);
+  });
+
+  test("returns undefined for a closing tag", async () => {
+    const doc = await openHtmlDoc("<p>Hello</p>");
+    const result = findEnclosingOpeningTag(doc, new vscode.Position(0, 9));
+    assert.strictEqual(result, undefined);
+  });
+
+  test("returns undefined for an HTML comment", async () => {
+    const doc = await openHtmlDoc("<!-- not a tag -->");
+    const result = findEnclosingOpeningTag(doc, new vscode.Position(0, 6));
+    assert.strictEqual(result, undefined);
+  });
+});

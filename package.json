@@ -92,6 +92,18 @@
         "title": "Open Condition Occurrence",
         "category": "Flare Toolkit",
         "enablement": "false"
+      },
+      {
+        "command": "flare.wrapSelectionAsXref",
+        "title": "Convert Selection to Cross-Reference",
+        "category": "Flare Toolkit",
+        "enablement": "false"
+      },
+      {
+        "command": "flare.addConditionToElement",
+        "title": "Add Condition to Element…",
+        "category": "Flare Toolkit",
+        "enablement": "false"
       }
     ],
     "menus": {

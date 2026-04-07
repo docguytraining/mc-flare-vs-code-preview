@@ -1,0 +1,61 @@
+import * as vscode from "vscode";
+
+const KEYWORDS = ["xref", "cond", "cblock"] as const;
+
+/**
+ * Static snippet completions surfaced by normal IntelliSense — `xref`, `cond`,
+ * and `cblock` expand to fully-formed MadCap tags with tab stops, so authors
+ * who already know what they want can scaffold without typing the brackets.
+ *
+ * These don't need any project context (and intentionally don't ask for one)
+ * so they're available as soon as the editor opens.
+ */
+export class XrefSnippetCompletionProvider implements vscode.CompletionItemProvider {
+  public provideCompletionItems(
+    document: vscode.TextDocument
+  ): vscode.CompletionItem[] | undefined {
+    if (!isFlareTopic(document)) {
+      return undefined;
+    }
+    const items: vscode.CompletionItem[] = [];
+
+    for (const keyword of KEYWORDS) {
+      const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Snippet);
+      item.detail = describe(keyword);
+      item.insertText = snippetFor(keyword);
+      item.sortText = `0_${keyword}`;
+      items.push(item);
+    }
+
+    return items;
+  }
+}
+
+function describe(keyword: typeof KEYWORDS[number]): string {
+  switch (keyword) {
+    case "xref":
+      return "Insert <MadCap:xref href=\"…\">link text</MadCap:xref>";
+    case "cond":
+      return "Insert MadCap:conditions=\"…\" attribute";
+    case "cblock":
+      return "Wrap content in <MadCap:conditionalBlock>";
+  }
+}
+
+function snippetFor(keyword: typeof KEYWORDS[number]): vscode.SnippetString {
+  switch (keyword) {
+    case "xref":
+      return new vscode.SnippetString('<MadCap:xref href="$1">${2:link text}</MadCap:xref>$0');
+    case "cond":
+      return new vscode.SnippetString('MadCap:conditions="$1"$0');
+    case "cblock":
+      return new vscode.SnippetString(
+        '<MadCap:conditionalBlock MadCap:conditions="$1">\n  $0\n</MadCap:conditionalBlock>'
+      );
+  }
+}
+
+function isFlareTopic(document: vscode.TextDocument): boolean {
+  const lower = document.uri.fsPath.toLowerCase();
+  return lower.endsWith(".htm") || lower.endsWith(".html");
+}

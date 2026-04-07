@@ -33,6 +33,9 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Project-wide dismissal** — "Never suggest 'X' anywhere in this project" writes to `flarePreview.suggestionIgnoreVariables` in workspace settings.
 - **Insert Cross-Reference command** — opens a project-wide quick pick of every topic indexed by its first `<h1>`, then a follow-up picker for the bookmark to link to. Inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected for editing.
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
+- **`[[` topic picker** — anywhere in flowing prose, type `[[` and IntelliSense opens a project-wide list of every topic. Pick one and the `[[` is replaced with a complete `<MadCap:xref>` tag pointing at the chosen topic, with the heading prefilled as link text.
+- **Convert selection to cross-reference** — select prose, click the lightbulb, choose **Convert to cross-reference…**, and the selection is replaced with a `<MadCap:xref>` whose link text is your original selection. Same project-wide topic picker as the regular Insert command.
+- **Tag-scaffolding snippet completions** — type `xref`, `cond`, or `cblock` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, or `<MadCap:conditionalBlock>` with tab stops in the right places.
 
 ### Conditional text and target picker
 
@@ -40,7 +43,9 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Target-aware preview** — the transform pipeline parses `MadCap:conditions=` on every element and hides anything the active target's expression excludes. Supports `include[A or B]`, `exclude[A and B]`, nested grouping, and `AND` between top-level clauses.
 - **Target picker** — a "Target" label and "Change…" button appear in the preview header. Picking a target persists per project root in `.vscode/flare-preview.json`. The list always includes a synthetic *Show everything* (default) and *(Project default)* entry.
 - **Condition badges** *(opt-in)* — turn on `flarePreview.showConditionBadges` to inject a small `madcap-condition-badge` pill inside every conditional element so you can see at a glance which tag gates each block.
-- **Condition autocomplete** — typing inside `MadCap:conditions="…"` or `MadCap:conditionTagExpression="…"` opens a completion list of every qualified condition tag in the project.
+- **Condition autocomplete** — typing inside `MadCap:conditions="…"` or `MadCap:conditionTagExpression="…"` opens a completion list of every qualified condition tag in the project. Each entry shows a small color swatch matching the tag's `BackgroundColor`, and accepting one re-triggers IntelliSense so you can chain a comma and pick the next tag without retyping anything.
+- **Condition attribute-name completion** — inside any opening tag, typing a space surfaces `MadCap:conditions=""` and `MadCap:conditionTagExpression=""` as completion items. Accepting one drops the cursor between the quotes and immediately fires the value picker above.
+- **"Add condition…" code action** — place the cursor anywhere inside an opening tag, click the lightbulb, choose **Add condition…**, and a multi-select quick pick of every project condition tag opens. Pre-checks any tags already on the element; on accept, the toolkit inserts (or extends) `MadCap:conditions="…"` on that tag in a single edit.
 - **Condition validation** — unknown `<set>.<tag>` references raise `flare.condition-unresolved` warnings in the Problems panel.
 - **Conditions discovery summary** — the preview's discovery section now lists every unique element-condition tag and snippet-condition tag referenced in the topic, with per-tag occurrence counts and a "hidden by active target" total.
 
@@ -178,6 +183,28 @@ Goal: rename `Content/Topics/old-name.htm` to `Content/Topics/new-name.htm` with
 
 If the rename happened outside VS Code (terminal `mv`, file manager, `git mv`), run **Flare Toolkit: Find Stale References** instead. It scans the same files and surfaces every stale reference in the Problems panel so you can fix them by hand.
 
+### Scaffold a cross-reference from selected text
+
+Goal: turn the words "API reference" in your prose into a clickable link to the API topic without retyping them.
+
+1. Select the text you want to become the link.
+2. Click the lightbulb that appears (or press `Ctrl/Cmd+.`) and choose **Convert to cross-reference…**.
+3. Pick the target topic from the project-wide quick pick (and a bookmark, if the topic has any).
+4. The toolkit replaces your selection with `<MadCap:xref href="…">API reference</MadCap:xref>` — same href format as the regular Insert command, but the link text is whatever you originally selected.
+
+Faster path: in the middle of writing prose, type `[[`. The completion popup opens the same topic picker; accepting an item erases the `[[` and inserts the full `<MadCap:xref>` tag, with the topic's `<h1>` prefilled as the link text.
+
+### Add a condition to an existing element
+
+Goal: gate a paragraph you already wrote on a `Default.Internal` build flag, without typing the attribute by hand.
+
+1. Place the cursor anywhere inside the opening tag of the element you want to gate (e.g. inside `<p class="warn">`).
+2. Click the lightbulb (or press `Ctrl/Cmd+.`) and choose **Add condition…**.
+3. The toolkit pops a multi-select quick pick listing every condition tag in the project, with any tags already on this element pre-checked. Color swatches make the tags visually distinct.
+4. Pick one or more tags and press Enter. The toolkit either inserts `MadCap:conditions="Default.Internal"` on the tag, or — if the element already had the attribute — appends to its existing value, deduplicating along the way.
+
+Faster path: type `MadCap:` inside the opening tag and the attribute-name completion offers `MadCap:conditions=""`. Accepting it lands the cursor between the quotes and immediately retriggers IntelliSense so you can pick the tag value without an extra keystroke.
+
 ### Validate every topic before pushing
 
 Goal: catch every broken link, missing snippet, missing image, missing stylesheet, and unknown condition tag in the project before opening a PR.
@@ -189,10 +216,9 @@ Goal: catch every broken link, missing snippet, missing image, missing styleshee
 
 ## Roadmap
 
-Phases 1–9 are complete, plus the Phase 9 follow-ups (rename condition tag, gutter decorations, clickable Conditions rows). Remaining items rolled forward:
+Phases 1–10 are complete. Phase 10 added the `[[` topic picker, the **Convert selection to cross-reference** code action, the `xref` / `cond` / `cblock` snippet completions, condition attribute-name completion with retrigger, color swatches in the condition value picker, and the **Add condition…** code action. Remaining items rolled forward:
 
 - **Class autocomplete** from project stylesheets.
-- **Phase 10**: easier cross-reference and condition authoring entry points (`[[` topic picker, attribute-name completion on bare elements, retrigger after commas, color swatches in the completion list, "Add condition…" code action).
 
 Track progress in [`.project-plan.md`](.project-plan.md).
 
