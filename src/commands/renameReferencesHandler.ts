@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { logError, logInfo } from "../core/logger";
+import { applyEditAndCleanUpTabs, captureOpenTabPaths } from "./applyAndCloseHelper";
 import {
   FileRename,
   isExternal,
@@ -123,6 +124,13 @@ export function registerRenameReferencesHandler(
   projectResolver: FlareProjectResolver
 ): vscode.Disposable {
   const renameDisposable = vscode.workspace.onDidRenameFiles(async (event) => {
+    // Snapshot tabs at the very start of the rename event handler, before
+    // any document loading happens. The helper later uses this set to
+    // decide which tabs to close — without an early snapshot, any tab
+    // surfaced by the rename's own openTextDocument calls would end up
+    // wrongly classified as "user already had it open".
+    const tabsBeforeRename = captureOpenTabPaths();
+
     const renames: FileRename[] = [];
     for (const { oldUri, newUri } of event.files) {
       if (oldUri.scheme !== "file" || newUri.scheme !== "file") {
@@ -161,7 +169,7 @@ export function registerRenameReferencesHandler(
         if (affected.length === 0) {
           continue;
         }
-        await runRenamePicker(affected);
+        await runRenamePicker(affected, tabsBeforeRename);
       } catch (error) {
         logError("Rename references scan failed", error);
       }
@@ -343,7 +351,10 @@ async function scanForStaleReferences(projectRoot: string): Promise<AffectedRefe
   return stale;
 }
 
-async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
+async function runRenamePicker(
+  affected: AffectedReference[],
+  tabsBeforeRename: Set<string>
+): Promise<void> {
   const items: QuickPickReferenceItem[] = affected.map((reference) => ({
     label: `$(file) ${path.basename(reference.filePath)}`,
     description: `${reference.line + 1}:${reference.column + 1}`,
@@ -383,8 +394,16 @@ async function runRenamePicker(affected: AffectedReference[]): Promise<void> {
     }
   }
 
-  const applied = await vscode.workspace.applyEdit(edit);
-  if (applied) {
+  // Apply, save, and clean up tabs in one helper call. Without it the user
+  // ends up with one dirty unsaved tab per affected file (potentially
+  // dozens for a real cross-project rename) and has to manually save and
+  // close each one — same bug we just fixed in the rename condition tag
+  // command.
+  const result = await applyEditAndCleanUpTabs(edit, {
+    progressTitle: `Flare: Updating ${picks.length} reference(s)…`,
+    previouslyOpenPaths: tabsBeforeRename
+  });
+  if (result.applied) {
     logInfo(`Rewrote ${picks.length} reference(s) across ${byFile.size} file(s).`);
     vscode.window.showInformationMessage(
       `Flare: updated ${picks.length} reference(s) across ${byFile.size} file(s).`
@@ -435,7 +454,16 @@ async function pathExists(candidate: string): Promise<boolean> {
 async function readTextOrUndefined(filePath: string): Promise<string | undefined> {
   try {
     const bytes = await fs.readFile(filePath);
-    return Buffer.from(bytes).toString("utf8");
+    let text = Buffer.from(bytes).toString("utf8");
+    // Strip the UTF-8 BOM. VS Code's TextDocument strips it on load,
+    // so leaving it in the scanner's string produces byte offsets that
+    // are off by one relative to `document.positionAt()`, which
+    // corrupts the rewritten range. See the matching note in
+    // `renameConditionTagCommand.ts`.
+    if (text.charCodeAt(0) === 0xfeff) {
+      text = text.slice(1);
+    }
+    return text;
   } catch {
     return undefined;
   }

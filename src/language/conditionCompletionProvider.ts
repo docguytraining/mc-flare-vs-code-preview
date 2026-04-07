@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 const CONDITION_ATTR_REGEX =
   /<[A-Za-z][^>]*\bMadCap:(?:conditions|conditionTagExpression)\s*=\s*(["'])([^"']*)$/i;
@@ -21,7 +22,7 @@ export class ConditionCompletionProvider implements vscode.CompletionItemProvide
     document: vscode.TextDocument,
     position: vscode.Position
   ): Promise<vscode.CompletionItem[] | undefined> {
-    if (!isFlareTopic(document)) {
+    if (!isFlareDocument(document)) {
       return undefined;
     }
     const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
@@ -98,9 +99,4 @@ export class ConditionCompletionProvider implements vscode.CompletionItemProvide
       return item;
     });
   }
-}
-
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
 }

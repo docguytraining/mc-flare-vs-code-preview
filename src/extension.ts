@@ -302,7 +302,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      await FlarePreviewPanel.show(context.extensionUri, document, buildPreviewData);
+      await FlarePreviewPanel.toggleOrShow(context.extensionUri, document, buildPreviewData);
     }
   );
 
@@ -549,7 +549,63 @@ export function activate(context: vscode.ExtensionContext): void {
   const renameReferencesRegistration = registerRenameReferencesHandler(projectResolver);
   const renameConditionTagRegistration = registerRenameConditionTagCommand(
     projectResolver,
-    conditionTagIndex
+    conditionTagIndex,
+    conditionDiagnostics
+  );
+
+  // `Flare: Clear Problems for Closed Files` walks every diagnostic this
+  // extension owns and deletes entries for any URI that isn't currently
+  // visible in a tab. This is the manual escape hatch for the case where
+  // a previous validation pass left stale diagnostics behind on files
+  // that have since been closed — bulk renames, project re-orgs, or any
+  // other operation that touches hundreds of files. We deliberately only
+  // clear OUR collections so we never wipe diagnostics owned by another
+  // extension or by the language server.
+  const clearProblemsRegistration = vscode.commands.registerCommand(
+    "flare.clearProblemsForClosedFiles",
+    () => {
+      const openPaths = new Set<string>();
+      for (const tabGroup of vscode.window.tabGroups.all) {
+        for (const tab of tabGroup.tabs) {
+          const input = tab.input;
+          if (input instanceof vscode.TabInputText) {
+            openPaths.add(input.uri.fsPath);
+          } else if (input instanceof vscode.TabInputCustom) {
+            openPaths.add(input.uri.fsPath);
+          } else if (input instanceof vscode.TabInputNotebook) {
+            openPaths.add(input.uri.fsPath);
+          } else if (input instanceof vscode.TabInputTextDiff) {
+            openPaths.add(input.original.fsPath);
+            openPaths.add(input.modified.fsPath);
+          }
+        }
+      }
+
+      let cleared = 0;
+      const collections = [
+        suggestionDiagnostics,
+        linkDiagnostics,
+        conditionDiagnostics
+      ];
+      for (const collection of collections) {
+        const toDelete: vscode.Uri[] = [];
+        collection.forEach((uri) => {
+          if (!openPaths.has(uri.fsPath)) {
+            toDelete.push(uri);
+          }
+        });
+        for (const uri of toDelete) {
+          collection.delete(uri);
+          cleared += 1;
+        }
+      }
+      logInfo(`Cleared Flare diagnostics for ${cleared} closed file(s).`);
+      vscode.window.showInformationMessage(
+        cleared === 0
+          ? "Flare: no stale diagnostics to clear."
+          : `Flare: cleared diagnostics for ${cleared} closed file(s).`
+      );
+    }
   );
 
   const conditionCompletionRegistration = vscode.languages.registerCompletionItemProvider(
@@ -792,6 +848,7 @@ export function activate(context: vscode.ExtensionContext): void {
     validateAllTopicsRegistration,
     renameReferencesRegistration,
     renameConditionTagRegistration,
+    clearProblemsRegistration,
     pickPreviewTargetRegistration,
     openConditionInTopicRegistration,
     dismissTopicSuggestionRegistration,

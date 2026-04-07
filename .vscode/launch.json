@@ -19,7 +19,7 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${env:HOME}/gitlab/tppdocs/TPP Project"
+        "${env:FLARE_PROJECT_PATH}"
       ],
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"

@@ -114,14 +114,17 @@ export class FlarePreviewPanel {
     dataResolver: PreviewDataResolver
   ): Promise<void> {
     if (FlarePreviewPanel.currentPanel) {
-      FlarePreviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
+      // preserveFocus=true keeps the editor active so the author can keep
+      // typing without having to click back into the editor pane after the
+      // keybinding fires.
+      FlarePreviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside, true);
       return FlarePreviewPanel.currentPanel.update(document);
     }
 
     const panel = vscode.window.createWebviewPanel(
       PANEL_VIEW_TYPE,
       "MadCap Flare Preview",
-      vscode.ViewColumn.Beside,
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       {
         enableScripts: true,
         enableFindWidget: true,
@@ -131,6 +134,36 @@ export class FlarePreviewPanel {
 
     FlarePreviewPanel.currentPanel = new FlarePreviewPanel(panel, extensionUri, dataResolver);
     return FlarePreviewPanel.currentPanel.update(document);
+  }
+
+  /**
+   * Toggle-aware entry point used by the keybinding. Three cases:
+   *
+   *   1. No panel open → behave like {@link show}: open it on this document.
+   *   2. Panel open and already showing this document → close it. This is
+   *      the "toggle off" case the keybinding mostly exists for.
+   *   3. Panel open but showing a different document → switch the panel to
+   *      this document instead of closing it. Matches Markdown preview's
+   *      behavior and is what authors expect when they jump between topics.
+   */
+  public static toggleOrShow(
+    extensionUri: vscode.Uri,
+    document: vscode.TextDocument,
+    dataResolver: PreviewDataResolver
+  ): Promise<void> {
+    const existing = FlarePreviewPanel.currentPanel;
+    if (!existing) {
+      return FlarePreviewPanel.show(extensionUri, document, dataResolver);
+    }
+    if (
+      existing.currentDocumentUri &&
+      existing.currentDocumentUri.toString() === document.uri.toString()
+    ) {
+      existing.panel.dispose();
+      return Promise.resolve();
+    }
+    existing.panel.reveal(vscode.ViewColumn.Beside, true);
+    return existing.update(document);
   }
 
   /** Authoritative refresh (save / dependency change) for the active panel. */

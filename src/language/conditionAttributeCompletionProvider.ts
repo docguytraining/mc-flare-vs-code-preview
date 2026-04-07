@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 /**
  * Attribute-name completion for `MadCap:conditions` and
@@ -18,7 +19,7 @@ export class ConditionAttributeCompletionProvider implements vscode.CompletionIt
     document: vscode.TextDocument,
     position: vscode.Position
   ): vscode.CompletionItem[] | undefined {
-    if (!isFlareTopic(document)) {
+    if (!isFlareDocument(document)) {
       return undefined;
     }
     if (!cursorIsInOpeningTagAttributeArea(document, position)) {
@@ -87,7 +88,3 @@ export function isAttributeArea(linePrefix: string): boolean {
   return quoteCount % 2 === 0;
 }
 
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
-}

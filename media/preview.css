@@ -59,13 +59,15 @@ body.flare-preview-body {
 }
 
 .flare-preview-summary,
-.flare-preview-diagnostics {
+.flare-preview-diagnostics,
+.flare-preview-conditions {
   color: var(--vscode-editor-foreground);
   font-family: var(--vscode-font-family);
 }
 
 .flare-preview-summary h2,
-.flare-preview-diagnostics h2 {
+.flare-preview-diagnostics h2,
+.flare-preview-conditions h2 {
   font-size: 0.95rem;
   margin: 0.75rem 0 0.25rem;
   color: var(--vscode-editor-foreground);
@@ -75,15 +77,34 @@ body.flare-preview-body {
   font-weight: 600;
 }
 
+.flare-preview-conditions h3 {
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0.25rem;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.flare-preview-conditions p {
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  margin: 0.25rem 0;
+}
+
 .flare-preview-summary ul,
-.flare-preview-diagnostics ul {
+.flare-preview-diagnostics ul,
+.flare-preview-conditions ul {
   margin: 0.25rem 0 0.5rem 1rem;
   padding: 0;
   list-style: disc;
 }
 
 .flare-preview-summary li,
-.flare-preview-diagnostics li {
+.flare-preview-diagnostics li,
+.flare-preview-conditions li {
   margin: 0.1rem 0;
   color: var(--vscode-editor-foreground);
 }
@@ -134,6 +155,146 @@ body.flare-preview-body {
 
 .topic-frame h3 {
   color: #1f2a44;
+}
+
+/*
+ * <MadCap:relatedTopics> aside. Rendered inside `.topic-frame` (so it
+ * inherits the white sheet of paper background), styled as a small
+ * navigation block — bordered, indented, slightly muted — so it sits
+ * apart from the main topic prose.
+ */
+.topic-frame aside.madcap-related-topics {
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #5a8dee;
+  background: #f4f7fb;
+  color: #1f1f1f;
+}
+
+.topic-frame .madcap-related-topics-header {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4a5b75;
+}
+
+.topic-frame aside.madcap-related-topics ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  list-style: disc;
+}
+
+.topic-frame aside.madcap-related-topics li {
+  margin: 0.15rem 0;
+  color: #1f1f1f;
+}
+
+.topic-frame a.madcap-related-topic {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.topic-frame a.madcap-related-topic:hover {
+  text-decoration: underline;
+}
+
+/* <MadCap:footnote> renders as a small superscript dagger; the inner
+   text is preserved in the title attribute as a hover tooltip. */
+.topic-frame sup.madcap-footnote {
+  color: #2563eb;
+  cursor: help;
+  font-weight: 600;
+  margin-left: 1px;
+}
+
+/* MadCap proxy placeholders. Proxies are build-time-only — Flare's
+   compiler resolves them into generated content (TOC tree, glossary
+   list, breadcrumb chain, index, etc.) — and we have no build context.
+   Render as a stylized neutral block so authors see "a proxy goes
+   here" without thinking the topic is broken or that we silently
+   dropped real content. Block-level so it stands apart from the
+   surrounding prose. */
+.topic-frame .madcap-proxy-placeholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 6px;
+  background: repeating-linear-gradient(
+    45deg,
+    #f1f5f9,
+    #f1f5f9 8px,
+    #e2e8f0 8px,
+    #e2e8f0 16px
+  );
+  color: #475569;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.topic-frame .madcap-proxy-placeholder-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.topic-frame .madcap-proxy-placeholder-text {
+  flex: 1;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.topic-frame .madcap-proxy-placeholder-text strong {
+  color: #334155;
+  font-weight: 600;
+}
+
+.topic-frame .madcap-proxy-placeholder-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85em;
+  color: #64748b;
+}
+
+.topic-frame .madcap-proxy-placeholder-hint code {
+  background: #e2e8f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.95em;
+}
+
+/* <MadCap:popup> renders as a <details> element using the popupHead text
+   as its summary. Visually distinct from <MadCap:dropDown> with a slightly
+   muted appearance — popups are inline tooltips, not full disclosure
+   sections. */
+.topic-frame details.madcap-popup {
+  display: inline-block;
+  margin: 0 2px;
+}
+
+.topic-frame details.madcap-popup > summary {
+  display: inline;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.topic-frame details.madcap-popup > summary:hover {
+  text-decoration: underline;
+}
+
+.topic-frame details.madcap-popup > .madcap-popup-body {
+  display: block;
+  margin: 0.4rem 0 0.4rem 1rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid #94a3b8;
+  background: #f4f7fb;
+  color: #1f1f1f;
+  font-size: 0.95em;
 }
 
 .topic-frame a.flare-xref {
@@ -261,10 +422,6 @@ button.flare-target-picker:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
-.flare-preview-conditions h2 {
-  margin-bottom: 0.4rem;
-}
-
 .condition-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -274,12 +431,22 @@ button.flare-target-picker:hover {
 .condition-column h3 {
   margin: 0 0 0.3rem 0;
   font-size: 1em;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
   opacity: 0.85;
 }
 
 .condition-column ul {
   margin: 0;
   padding-left: 1.2rem;
+  list-style: disc;
+}
+
+.condition-column li {
+  color: var(--vscode-editor-foreground);
 }
 
 button.flare-condition-row {
@@ -287,7 +454,7 @@ button.flare-condition-row {
   align-items: baseline;
   gap: 0.4rem;
   background: transparent;
-  color: inherit;
+  color: var(--vscode-editor-foreground);
   border: 1px solid transparent;
   padding: 1px 6px;
   margin: 0;
@@ -304,18 +471,21 @@ button.flare-condition-row:hover {
 
 button.flare-condition-row code {
   background: transparent;
+  color: var(--vscode-editor-foreground);
   padding: 0;
 }
 
 .condition-count {
   opacity: 0.65;
   font-size: 0.85em;
+  color: var(--vscode-editor-foreground);
 }
 
 .condition-hidden-note {
   opacity: 0.85;
   font-style: italic;
   margin: 0.2rem 0 0.6rem 0;
+  color: var(--vscode-editor-foreground);
 }
 
 .madcap-condition-badge {

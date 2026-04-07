@@ -2,7 +2,7 @@
   "name": "mc-flare-vs-code-preview",
   "displayName": "Toolkit for MadCap Flare",
   "description": "Unofficial VS Code toolkit for editing existing MadCap Flare™ topics. Requires a Flare license. Not affiliated with MadCap Software, Inc.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "DocGuyTraining",
   "author": {
     "name": "DocGuy Training"
@@ -47,8 +47,7 @@
         "command": "flare.previewHtml",
         "title": "Live Preview",
         "shortTitle": "Live Preview",
-        "category": "Flare Toolkit",
-        "icon": "$(open-preview)"
+        "category": "Flare Toolkit"
       },
       {
         "command": "flare.insertXref",
@@ -85,6 +84,11 @@
       {
         "command": "flare.renameConditionTag",
         "title": "Rename Condition Tag…",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.clearProblemsForClosedFiles",
+        "title": "Clear Problems for Closed Files",
         "category": "Flare Toolkit"
       },
       {
@@ -125,6 +129,14 @@
         "title": "Replace Selection with Variable",
         "category": "Flare Toolkit",
         "enablement": "false"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "flare.previewHtml",
+        "key": "ctrl+k p",
+        "mac": "cmd+k p",
+        "when": "editorTextFocus && (resourceExtname == .htm || resourceExtname == .html)"
       }
     ],
     "menus": {

@@ -20,8 +20,13 @@ export interface TargetEntry {
   isProjectDefault: boolean;
 }
 
+// Real Flare .fltar files store the target's conditional expression in a
+// `ConditionTagExpression="…"` attribute (the same name used on snippet
+// includes). The .flprj uses `PreviewConditionalExpression`. Older
+// projects sometimes use `ConditionExpression` or `ConditionalExpression`,
+// so we accept all four spellings.
 const TARGET_CONDITIONAL_REGEX =
-  /\b(?:ConditionExpression|ConditionalExpression|PreviewConditionalExpression)\s*=\s*"([^"]*)"/i;
+  /\b(?:ConditionTagExpression|ConditionExpression|ConditionalExpression|PreviewConditionalExpression)\s*=\s*"([^"]*)"/i;
 
 /**
  * Walks `Project/Targets` for `.fltar` files, extracts each target's conditional
@@ -63,7 +68,8 @@ export async function discoverTargets(
     if (!text) {
       continue;
     }
-    const expression = TARGET_CONDITIONAL_REGEX.exec(text)?.[1] ?? undefined;
+    const rawExpression = TARGET_CONDITIONAL_REGEX.exec(text)?.[1];
+    const expression = rawExpression ? decodeXmlEntities(rawExpression) : undefined;
     const baseName = path.basename(file, path.extname(file));
     targets.push({
       id: `target:${path.relative(projectRoot, file).replace(/\\/g, "/")}`,
@@ -85,7 +91,26 @@ async function readProjectPreviewExpression(
   if (!text) {
     return undefined;
   }
-  return TARGET_CONDITIONAL_REGEX.exec(text)?.[1] ?? undefined;
+  const raw = TARGET_CONDITIONAL_REGEX.exec(text)?.[1];
+  return raw ? decodeXmlEntities(raw) : undefined;
+}
+
+/**
+ * Decodes the small set of XML entities Flare actually emits in attribute
+ * values. Real `.fltar` files quote condition tag names that contain
+ * spaces or punctuation by wrapping them in `&quot;…&quot;`, so the
+ * downstream condition expression parser needs to see real `"`
+ * characters or it'll fail to recognize the quoted tags as a single
+ * token.
+ */
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_full, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&amp;/g, "&");
 }
 
 async function collectFltarFiles(rootDir: string, accumulator: string[]): Promise<void> {

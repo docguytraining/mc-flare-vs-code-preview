@@ -6,6 +6,7 @@ import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { FlareProjectContext } from "../core/types";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { logError, logInfo } from "../core/logger";
+import { applyEditAndCleanUpTabs, captureOpenTabPaths } from "./applyAndCloseHelper";
 
 const SKIP_DIRECTORIES = new Set([
   "Output",
@@ -15,7 +16,14 @@ const SKIP_DIRECTORIES = new Set([
   ".vs"
 ]);
 
-const SCANNABLE_EXTENSIONS = new Set([".htm", ".html"]);
+// File types we open and scan for condition tag references. HTML topics
+// and the Flare project files (`.fl*`) are obvious. We also scan `.js`
+// and `.css` because Flare authors routinely embed `MadCap:conditions=`
+// strings inside scripts under `Content/Resources/MasterPages/scripts`
+// and inside CSS comments / selector blocks — those references need to
+// be renamed alongside the topic-level ones, otherwise the rename
+// silently leaves stale tokens that break the next build.
+const SCANNABLE_EXTENSIONS = new Set([".htm", ".html", ".js", ".css"]);
 const FLARE_EXTENSION_REGEX = /^\.fl[a-z0-9]+$/i;
 
 interface ConditionTagOccurrence {
@@ -58,11 +66,16 @@ interface QuickPickOccurrenceItem extends vscode.QuickPickItem {
  */
 export function registerRenameConditionTagCommand(
   projectResolver: FlareProjectResolver,
-  conditionTagIndex: ConditionTagIndex
+  conditionTagIndex: ConditionTagIndex,
+  conditionDiagnostics: vscode.DiagnosticCollection
 ): vscode.Disposable {
   return vscode.commands.registerCommand("flare.renameConditionTag", async () => {
     try {
-      await runRenameConditionTagCommand(projectResolver, conditionTagIndex);
+      await runRenameConditionTagCommand(
+        projectResolver,
+        conditionTagIndex,
+        conditionDiagnostics
+      );
     } catch (error) {
       logError("Rename condition tag failed", error);
       vscode.window.showErrorMessage(
@@ -74,8 +87,16 @@ export function registerRenameConditionTagCommand(
 
 async function runRenameConditionTagCommand(
   projectResolver: FlareProjectResolver,
-  conditionTagIndex: ConditionTagIndex
+  conditionTagIndex: ConditionTagIndex,
+  conditionDiagnostics: vscode.DiagnosticCollection
 ): Promise<void> {
+  // Snapshot tabs at the very start, before any document loading. The
+  // helper later uses this to decide which tabs to close — anything
+  // opened by `openTextDocument` calls during the rename should NOT be
+  // in this set, otherwise the close logic will preserve them as if
+  // the user had them open before the command ran.
+  const tabsBeforeRename = captureOpenTabPaths();
+
   const editor = vscode.window.activeTextEditor;
   let projectContext: FlareProjectContext | undefined;
   if (editor) {
@@ -102,6 +123,13 @@ async function runRenameConditionTagCommand(
     return;
   }
 
+  // Refresh the condition tag index before reading it. The cache may be
+  // stale from a previous rename in this session, from an external git
+  // checkout that swapped .flcts files, or from an in-editor edit the
+  // user just made. We always want the picker to show what's actually
+  // on disk right now, not whatever was in the index from the last
+  // time anything called getEntries().
+  conditionTagIndex.invalidateAll();
   const tags = await conditionTagIndex.getEntries(projectContext);
   if (tags.length === 0) {
     vscode.window.showInformationMessage(
@@ -178,11 +206,24 @@ async function runRenameConditionTagCommand(
     }
   }
 
-  const occurrences = await scanProjectForOccurrences(
-    projectContext.projectRoot.fsPath,
-    setName,
-    oldTagName,
-    newTagName.trim()
+  // Wrap the scan in a progress notification. Real Flare projects can have
+  // thousands of files, and the scan reads + regex-matches every one of
+  // them. Even though we now parallelize the file I/O, "no feedback for 1+
+  // seconds while VS Code looks frozen" is bad UX — surface a notification
+  // so authors know the command is doing something and don't give up.
+  const occurrences = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Flare: Scanning for '${oldQualified}'…`,
+      cancellable: false
+    },
+    () =>
+      scanProjectForOccurrences(
+        projectContext!.projectRoot.fsPath,
+        setName,
+        oldTagName,
+        newTagName.trim()
+      )
   );
 
   if (occurrences.length === 0) {
@@ -231,15 +272,72 @@ async function runRenameConditionTagCommand(
     }
   }
 
-  const applied = await vscode.workspace.applyEdit(edit);
-  if (applied) {
+  // Apply the edit, save every modified file, and close any tabs VS Code
+  // opened for files the user didn't already have open. Without this
+  // helper the rename leaves the user with one dirty unsaved tab per
+  // affected file (68+ for a tag like Default.NEVER_USE in a real
+  // project) which they have to manually save and close.
+  const result = await applyEditAndCleanUpTabs(edit, {
+    progressTitle: `Flare: Renaming ${oldQualified} → ${newQualified}…`,
+    previouslyOpenPaths: tabsBeforeRename
+  });
+
+  if (result.applied) {
     logInfo(
       `Renamed condition tag ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
     );
-    vscode.window.showInformationMessage(
-      `Flare: renamed ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
-    );
     conditionTagIndex.invalidateAll();
+
+    // Clear stale `flare-conditions` diagnostics for every file we just
+    // edited. The diagnostic provider runs on a debounce against the
+    // text of each modified document; when the rename touches hundreds
+    // of files, the debounced validation pass fires *after* the docs
+    // have been saved and closed and ends up evaluating doc content
+    // against an index snapshot that briefly disagrees, leaving the
+    // Problems panel full of "Unknown Flare condition tag" warnings
+    // that aren't real. Wiping the entries for the touched URIs is
+    // safe because either (a) the file is closed and the next reopen
+    // will revalidate it from scratch, or (b) the file is still open
+    // and our `onDidChangeTextDocument` handler will revalidate it
+    // shortly anyway.
+    for (const filePath of byFile.keys()) {
+      conditionDiagnostics.delete(vscode.Uri.file(filePath));
+    }
+
+    // Verification re-scan: read the project again and check that no
+    // occurrence of the OLD qualified name remains. If any do, surface
+    // them to the user with a warning so they don't silently ship a
+    // half-renamed project. This is the safety net for any future bug
+    // in the rename pipeline (offset mismatches, encoding issues,
+    // unhandled file types) — corruption-class bugs should never
+    // pass silently again.
+    const remaining = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Flare: Verifying rename of '${oldQualified}'…`,
+        cancellable: false
+      },
+      () =>
+        scanProjectForOccurrences(
+          projectContext!.projectRoot.fsPath,
+          setName,
+          oldTagName,
+          newTagName.trim()
+        )
+    );
+    if (remaining.length > 0) {
+      vscode.window.showWarningMessage(
+        `Flare: rename completed but ${remaining.length} occurrence(s) of '${oldQualified}' still remain. Check the output channel for the file list.`
+      );
+      logInfo(`Verification: ${remaining.length} stale occurrence(s) after rename:`);
+      for (const occ of remaining.slice(0, 50)) {
+        logInfo(`  ${occ.filePath}:${occ.line + 1}:${occ.column + 1}`);
+      }
+    } else {
+      vscode.window.showInformationMessage(
+        `Flare: renamed ${oldQualified} → ${newQualified} (${picks.length} occurrence(s) across ${byFile.size} file(s)).`
+      );
+    }
   } else {
     vscode.window.showWarningMessage(
       "Flare: failed to apply rename edits. See the output channel."
@@ -270,71 +368,118 @@ export async function scanProjectForOccurrences(
 
   const oldQualified = `${setName}.${oldTagName}`;
   const newQualified = `${setName}.${newTagName}`;
-  const qualifiedRegex = new RegExp(
-    `(?<![\\w.])${escapeRegex(oldQualified)}(?![\\w.-])`,
-    "g"
-  );
-  const flctsNameRegex = new RegExp(
-    `(<ConditionTag\\b[^>]*\\bName\\s*=\\s*["'])${escapeRegex(oldTagName)}(["'])`,
-    "gi"
-  );
 
+  // Read files in parallel batches. Serial reads against a real Flare
+  // project (3,000+ files) take 7+ seconds — the bottleneck is the
+  // round-trip per file, not the regex work. Batching with Promise.all
+  // saturates the disk queue and brings the scan down to under a second.
+  // Cap concurrency at 64 so we don't open thousands of file descriptors
+  // simultaneously on smaller systems.
+  const READ_CONCURRENCY = 64;
   const occurrences: ConditionTagOccurrence[] = [];
 
-  for (const file of files) {
-    const text = await readTextOrUndefined(file);
-    if (text === undefined) {
-      continue;
-    }
-    const ext = path.extname(file).toLowerCase();
-    if (ext === ".flcts") {
-      // Only rewrite the Name="…" attribute in the file whose basename matches
-      // the set we're renaming inside.
-      if (path.basename(file, ext) === setName) {
-        flctsNameRegex.lastIndex = 0;
-        let match = flctsNameRegex.exec(text);
-        while (match) {
-          const prefix = match[1];
-          const suffix = match[2];
-          const before = `${prefix}${oldTagName}${suffix}`;
-          const after = `${prefix}${newTagName}${suffix}`;
-          const start = match.index;
-          const positionInfo = positionOf(text, start);
-          occurrences.push({
-            filePath: file,
-            start,
-            length: before.length,
-            before,
-            after,
-            context: contextAround(text, start),
-            line: positionInfo.line,
-            column: positionInfo.column
-          });
-          match = flctsNameRegex.exec(text);
+  for (let i = 0; i < files.length; i += READ_CONCURRENCY) {
+    const batch = files.slice(i, i + READ_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (file) => {
+        const text = await readTextOrUndefined(file);
+        if (text === undefined) {
+          return [] as ConditionTagOccurrence[];
         }
-      }
-      continue;
+        return scanFileForOccurrences(
+          file,
+          text,
+          setName,
+          oldTagName,
+          newTagName,
+          oldQualified,
+          newQualified
+        );
+      })
+    );
+    for (const fileOccurrences of results) {
+      occurrences.push(...fileOccurrences);
     }
+  }
 
-    qualifiedRegex.lastIndex = 0;
-    let match = qualifiedRegex.exec(text);
+  return occurrences;
+}
+
+/**
+ * Scans the body of a single file for condition tag occurrences. Pulled
+ * out of `scanProjectForOccurrences` so the per-file regex work can run
+ * in parallel batches without each call sharing mutable RegExp state.
+ *
+ * Each call constructs its own RegExp objects rather than using shared
+ * module-level constants — global regexes (the `g` flag) carry mutable
+ * `lastIndex` state, and concurrent batches calling `.exec()` on the
+ * same RegExp object would corrupt each other's iteration position.
+ */
+function scanFileForOccurrences(
+  filePath: string,
+  text: string,
+  setName: string,
+  oldTagName: string,
+  newTagName: string,
+  oldQualified: string,
+  newQualified: string
+): ConditionTagOccurrence[] {
+  const occurrences: ConditionTagOccurrence[] = [];
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (ext === ".flcts") {
+    // Only rewrite the Name="…" attribute in the file whose basename
+    // matches the set we're renaming inside.
+    if (path.basename(filePath, ext) !== setName) {
+      return occurrences;
+    }
+    const flctsNameRegex = new RegExp(
+      `(<ConditionTag\\b[^>]*\\bName\\s*=\\s*["'])${escapeRegex(oldTagName)}(["'])`,
+      "gi"
+    );
+    let match = flctsNameRegex.exec(text);
     while (match) {
+      const prefix = match[1];
+      const suffix = match[2];
+      const before = `${prefix}${oldTagName}${suffix}`;
+      const after = `${prefix}${newTagName}${suffix}`;
       const start = match.index;
       const positionInfo = positionOf(text, start);
       occurrences.push({
-        filePath: file,
+        filePath,
         start,
-        length: oldQualified.length,
-        before: oldQualified,
-        after: newQualified,
+        length: before.length,
+        before,
+        after,
         context: contextAround(text, start),
         line: positionInfo.line,
         column: positionInfo.column
       });
-      match = qualifiedRegex.exec(text);
+      match = flctsNameRegex.exec(text);
     }
+    return occurrences;
   }
 
+  const qualifiedRegex = new RegExp(
+    `(?<![\\w.])${escapeRegex(oldQualified)}(?![\\w.-])`,
+    "g"
+  );
+  let match = qualifiedRegex.exec(text);
+  while (match) {
+    const start = match.index;
+    const positionInfo = positionOf(text, start);
+    occurrences.push({
+      filePath,
+      start,
+      length: oldQualified.length,
+      before: oldQualified,
+      after: newQualified,
+      context: contextAround(text, start),
+      line: positionInfo.line,
+      column: positionInfo.column
+    });
+    match = qualifiedRegex.exec(text);
+  }
   return occurrences;
 }
 
@@ -397,7 +542,19 @@ async function collectScanFiles(rootDir: string, accumulator: string[]): Promise
 async function readTextOrUndefined(filePath: string): Promise<string | undefined> {
   try {
     const bytes = await fs.readFile(filePath);
-    return Buffer.from(bytes).toString("utf8");
+    let text = Buffer.from(bytes).toString("utf8");
+    // Strip the UTF-8 BOM if present. VS Code's TextDocument silently
+    // strips the BOM when it loads a file, so a scanner that keeps the
+    // BOM produces byte offsets that are off by one relative to
+    // `document.positionAt()`. That offset mismatch is what produced the
+    // `DDefault.ScreenOnlyrename` corruption — the range shifted right
+    // by one char, preserving the original first character of the match
+    // and eating one char past the end. Strip it here so the scanner's
+    // string is byte-for-byte identical to what VS Code exposes.
+    if (text.charCodeAt(0) === 0xfeff) {
+      text = text.slice(1);
+    }
+    return text;
   } catch {
     return undefined;
   }

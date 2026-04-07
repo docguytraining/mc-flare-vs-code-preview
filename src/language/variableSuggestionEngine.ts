@@ -90,10 +90,20 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
     }
 
     const entries: vscode.Diagnostic[] = matches.map((match) => {
+      // Severity is `Hint` rather than `Information` so these never
+      // appear in the Problems panel. A literal that *could* be a
+      // variable isn't a problem — it's an opportunistic refactor
+      // suggestion. Hints render as a faint underline in the editor
+      // and still surface their code action ("Replace with
+      // <MadCap:variable…>") via the lightbulb / Cmd+. menu, but VS
+      // Code excludes Hint diagnostics from the Problems panel by
+      // default, which is exactly what we want for whole-project
+      // validation runs that would otherwise drown the panel in
+      // hundreds of non-issues.
       const diagnostic = new vscode.Diagnostic(
         match.range,
         `'${match.literal}' matches the value of Flare variable '${match.variableName}'. Consider replacing it with a <MadCap:variable> reference.`,
-        vscode.DiagnosticSeverity.Information
+        vscode.DiagnosticSeverity.Hint
       );
       diagnostic.code = SUGGESTION_CODE;
       diagnostic.source = DIAGNOSTIC_SOURCE;
@@ -190,6 +200,13 @@ function buildReverseLookup(
 
   const map = new Map<string, string>();
   for (const [name, value] of variables.entries()) {
+    // Only use qualified variable names (Set.Name) in suggestions. Bare names
+    // are ambiguous when multiple variable sets define the same variable name,
+    // and using them can result in broken references.
+    if (!name.includes(".")) {
+      continue;
+    }
+
     const trimmed = value.trim();
     if (ignoredValues.has(trimmed)) {
       continue;

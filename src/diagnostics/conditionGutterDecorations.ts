@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { ConditionTagIndex } from "../flare/conditionTagIndex";
 import { parseConditionsAttribute } from "../flare/conditionExpression";
+import { isFlareDocument } from "../core/fileTypeHelpers";
 
 const CONDITIONS_ATTR_REGEX =
   /\b(?:MadCap:conditions|MadCap:conditionTagExpression)\s*=\s*(["'])([^"']*)\1/gi;
@@ -71,7 +72,7 @@ export class ConditionGutterDecorations implements vscode.Disposable {
   }
 
   public async refresh(editor: vscode.TextEditor): Promise<void> {
-    if (!isFlareTopic(editor.document)) {
+    if (!isFlareDocument(editor.document)) {
       return;
     }
 
@@ -190,14 +191,67 @@ function pickFirstColor(
   return FALLBACK_COLOR;
 }
 
+// CSS named colors that Flare authors commonly drop into a `.flcts`
+// `BackgroundColor` attribute. SVG accepts these natively, but we still
+// need to recognize them as "valid" so they don't fall through to the
+// grey fallback. The list mirrors the CSS3 named-color set, lowercased
+// for case-insensitive lookup.
+const CSS_NAMED_COLORS = new Set<string>([
+  "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque",
+  "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood",
+  "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk",
+  "crimson", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray",
+  "darkgreen", "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen",
+  "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
+  "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise",
+  "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue",
+  "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro",
+  "ghostwhite", "gold", "goldenrod", "gray", "green", "greenyellow", "grey",
+  "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
+  "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral",
+  "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
+  "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray",
+  "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen",
+  "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid",
+  "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen",
+  "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose",
+  "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange",
+  "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+  "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum",
+  "powderblue", "purple", "rebeccapurple", "red", "rosybrown", "royalblue",
+  "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna",
+  "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow",
+  "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "turquoise",
+  "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen",
+  "transparent"
+]);
+
+/**
+ * Coerces a `BackgroundColor` value from a `.flcts` `<ConditionTag>` entry
+ * into a string the gutter SVG can use as `fill`. Real Flare projects mix
+ * three formats:
+ *
+ *   - Hex: `#008000` or `#fff` (CSS standard, the most reliable form)
+ *   - Hex with alpha: `#008000ff` (we strip the alpha for the gutter)
+ *   - CSS named colors: `Blue`, `Red`, `Green`, `Forest Green` etc.
+ *
+ * Anything else falls back to a neutral grey so authors still see *that*
+ * the line is conditional, just without the per-tag color cue.
+ */
 function normalizeColor(color: string): string {
   const trimmed = color.trim();
   if (/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(trimmed)) {
     return trimmed;
   }
-  // Strip any trailing alpha or unsupported syntax — fall back to grey.
+  // Strip any trailing alpha for #RRGGBBAA hex.
   if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) {
     return trimmed.slice(0, 7);
+  }
+  // CSS named color lookup (case-insensitive). Whitespace is stripped so
+  // names Flare sometimes serializes with embedded spaces still match.
+  const collapsed = trimmed.replace(/\s+/g, "").toLowerCase();
+  if (CSS_NAMED_COLORS.has(collapsed)) {
+    return collapsed;
   }
   return FALLBACK_COLOR;
 }
@@ -212,11 +266,6 @@ export function svgGutterDataUri(color: string): string {
   const safeColor = normalizeColor(color);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" ry="2" fill="${safeColor}" stroke="#0006" stroke-width="1"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-function isFlareTopic(document: vscode.TextDocument): boolean {
-  const lower = document.uri.fsPath.toLowerCase();
-  return lower.endsWith(".htm") || lower.endsWith(".html");
 }
 
 function readEnabledSetting(): boolean {

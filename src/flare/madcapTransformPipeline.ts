@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectContext, TransformResult } from "../core/types";
-import { ConditionExpression, alwaysRender } from "./conditionExpression";
+import { ConditionExpression, alwaysRender, parseTargetExpression } from "./conditionExpression";
 import { applyConditions } from "./conditionRenderer";
 
 export interface TransformContext {
@@ -36,13 +36,65 @@ const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)[
 const CONDITIONAL_BLOCK_REGEX = /<MadCap:conditionalBlock\b([^>]*)>([\s\S]*?)<\/MadCap:conditionalBlock>/gi;
 const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
-const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/gi;
-const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
+// dropDownHead / dropDownBody are structural wrapper elements inside a
+// <MadCap:dropDown>. The dropDown handler already consumes the hotspot, but
+// the wrappers themselves survive into the rendered <details> body unless we
+// also strip them — leaving their inner content intact.
+const DROPDOWN_HEAD_REGEX = /<MadCap:dropDownHead\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHead>/gi;
+const DROPDOWN_BODY_REGEX = /<MadCap:dropDownBody\b[^>]*>([\s\S]*?)<\/MadCap:dropDownBody>/gi;
+const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock|snippetText)\b([^>]*)\/>/gi;
+const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock|snippetText)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const XREF_SELF_CLOSING_REGEX = /<MadCap:xref\b([^>]*)\/>/gi;
 const XREF_BLOCK_REGEX = /<MadCap:xref\b([^>]*)>([\s\S]*?)<\/MadCap:xref>/gi;
 const KEYWORD_TAG_REGEX = /<MadCap:keyword\b[^>]*\/>|<MadCap:keyword\b[^>]*>[\s\S]*?<\/MadCap:keyword>/gi;
 const ANNOTATION_BLOCK_REGEX = /<MadCap:annotation\b[^>]*>([\s\S]*?)<\/MadCap:annotation>/gi;
 const ANNOTATION_SELF_CLOSING_REGEX = /<MadCap:annotation\b[^>]*\/>/gi;
+// Related topics: a <MadCap:relatedTopics> container with one or more
+// self-closing <MadCap:relatedTopic href="…" /> children. Rendered as a
+// small navigation aside in the preview so authors can see the references.
+const RELATED_TOPICS_REGEX = /<MadCap:relatedTopics\b[^>]*>([\s\S]*?)<\/MadCap:relatedTopics>/gi;
+const RELATED_TOPICS_SELF_CLOSING_REGEX = /<MadCap:relatedTopics\b[^>]*\/>/gi;
+const RELATED_TOPIC_ITEM_REGEX = /<MadCap:relatedTopic\b([^>]*)\/>/gi;
+// <MadCap:conditionalText> is the inline counterpart to
+// <MadCap:conditionalBlock>: a transparent wrapper around a span of inline
+// text that's gated by a `MadCap:conditions=` attribute. The condition
+// renderer in `applyConditions` already handles the gating (hiding the whole
+// element when the active target excludes its conditions, or stripping the
+// `MadCap:conditions=` attribute when it includes them). After that pass
+// runs, any surviving wrapper has done its job and we can unwrap it so the
+// inner content flows back into the surrounding paragraph naturally.
+const CONDITIONAL_TEXT_REGEX = /<MadCap:conditionalText\b[^>]*>([\s\S]*?)<\/MadCap:conditionalText>/gi;
+const CONDITIONAL_TEXT_SELF_CLOSING_REGEX = /<MadCap:conditionalText\b[^>]*\/>/gi;
+// <MadCap:footnote> is an inline footnote with the footnote text as its
+// children. We render it as a superscript dagger that carries the inner
+// text as a hover tooltip — we don't have a numbering pass.
+const FOOTNOTE_REGEX = /<MadCap:footnote\b[^>]*>([\s\S]*?)<\/MadCap:footnote>/gi;
+const FOOTNOTE_SELF_CLOSING_REGEX = /<MadCap:footnote\b[^>]*\/>/gi;
+// <MadCap:concept> is a topic-classification anchor (like a tag) with no
+// visible content. Drop it.
+const CONCEPT_REGEX = /<MadCap:concept\b[^>]*>([\s\S]*?)<\/MadCap:concept>/gi;
+const CONCEPT_SELF_CLOSING_REGEX = /<MadCap:concept\b[^>]*\/>/gi;
+// <MadCap:popup> is a tooltip-on-click element with a hotspot and a body.
+// Same structural shape as <MadCap:dropDown>, so we render it as a
+// <details>/<summary> pair too.
+const POPUP_REGEX = /<MadCap:popup\b([^>]*)>([\s\S]*?)<\/MadCap:popup>/gi;
+const POPUP_HEAD_REGEX = /<MadCap:popupHead\b[^>]*>([\s\S]*?)<\/MadCap:popupHead>/gi;
+const POPUP_BODY_REGEX = /<MadCap:popupBody\b[^>]*>([\s\S]*?)<\/MadCap:popupBody>/gi;
+// Generic match for any MadCap proxy element (`<MadCap:tocProxy />`,
+// `<MadCap:glossaryProxy />`, `<MadCap:miniTocProxy />`, etc.). Proxies are
+// build-time placeholders that Flare's compiler resolves into real content
+// (a generated TOC, a glossary list, breadcrumb links, an index, etc.).
+// We have no build context, so we render each one as a stylized neutral
+// block that tells the author "a `<flavor>` proxy will be inserted here at
+// build time" — visible enough that authors don't think the topic is
+// broken, generic enough that we don't have to special-case every proxy
+// flavor Flare ships.
+//
+// Matches both self-closing (`<MadCap:fooProxy />`) and open/close
+// (`<MadCap:fooProxy>…</MadCap:fooProxy>`, rare but legal) variants. The
+// captured group is the bare proxy name (e.g. `tocProxy`, `glossaryProxy`).
+const PROXY_SELF_CLOSING_REGEX = /<MadCap:([A-Za-z0-9_-]*[Pp]roxy)\b[^>]*\/>/g;
+const PROXY_BLOCK_REGEX = /<MadCap:([A-Za-z0-9_-]*[Pp]roxy)\b[^>]*>[\s\S]*?<\/MadCap:\1>/g;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -83,7 +135,9 @@ const conditionalTransformHandler: TransformHandler = {
 const dropDownTransformHandler: TransformHandler = {
   id: "dropdown-expandable",
   run(htmlContent) {
-    return replaceDropDowns(htmlContent);
+    let transformed = replaceDropDowns(htmlContent);
+    transformed = replacePopups(transformed);
+    return transformed;
   }
 };
 
@@ -101,10 +155,51 @@ const xrefTransformHandler: TransformHandler = {
   }
 };
 
+const relatedTopicsTransformHandler: TransformHandler = {
+  id: "related-topics",
+  run(htmlContent) {
+    return replaceRelatedTopics(htmlContent);
+  }
+};
+
+/**
+ * Replaces every MadCap proxy element with a stylized neutral placeholder
+ * block. Proxies are build-time only — Flare's compiler resolves them into
+ * generated content (TOC tree, glossary list, breadcrumb chain, index,
+ * etc.) — and we have no build context. The placeholder tells the author
+ * "this is where a `<flavor>` proxy will be inserted at build time" so the
+ * topic doesn't look broken in the preview without making us pretend we
+ * can render content we can't.
+ */
+const proxyPlaceholderTransformHandler: TransformHandler = {
+  id: "proxy-placeholders",
+  run(htmlContent) {
+    return replaceProxies(htmlContent);
+  }
+};
+
 /**
  * Silently drops authoring/metadata tags whose content (or absence of
  * content) should never appear in the rendered preview. Runs before the
  * unsupported-tag fallback so these don't pollute the warning list.
+ *
+ * Also unwraps `<MadCap:conditionalText>` here because by the time this
+ * handler runs the condition renderer has already either hidden the whole
+ * element (if the active target excludes its conditions) or stripped its
+ * `MadCap:conditions=` attribute (if it includes them). The wrapper itself
+ * is then transparent — its job is done and we want its inner content to
+ * flow back into the surrounding paragraph as if the wrapper had never
+ * been there.
+ *
+ * Three more tags handled here for completeness:
+ *   - <MadCap:concept> — topic-classification anchor with no visible
+ *     content. Drop entirely.
+ *   - <MadCap:footnote> — inline footnote with the footnote text as its
+ *     children. Render as a small superscript dagger that carries the
+ *     inner text as a hover tooltip. We don't have Flare's footnote-
+ *     numbering pass so the marker is the same for every footnote in the
+ *     topic; that's a known limitation but lets the rendered topic stay
+ *     readable instead of dropping the footnote text entirely.
  */
 const metadataDropHandler: TransformHandler = {
   id: "metadata-drop",
@@ -115,6 +210,22 @@ const metadataDropHandler: TransformHandler = {
       (_full, body: string) => body
     );
     transformed = transformed.replace(ANNOTATION_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(
+      CONDITIONAL_TEXT_REGEX,
+      (_full, body: string) => body
+    );
+    transformed = transformed.replace(CONDITIONAL_TEXT_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(CONCEPT_REGEX, "");
+    transformed = transformed.replace(CONCEPT_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(FOOTNOTE_REGEX, (_full, body: string) => {
+      const footnoteText = stripTags(body).trim();
+      const tooltip = footnoteText.length > 0 ? footnoteText : "footnote";
+      return `<sup class="madcap-footnote" title="${escapeHtml(tooltip)}">†</sup>`;
+    });
+    transformed = transformed.replace(
+      FOOTNOTE_SELF_CLOSING_REGEX,
+      `<sup class="madcap-footnote" title="footnote">†</sup>`
+    );
     return transformed;
   }
 };
@@ -132,6 +243,8 @@ const REGISTERED_HANDLERS: TransformHandler[] = [
   dropDownTransformHandler,
   snippetTransformHandler,
   xrefTransformHandler,
+  relatedTopicsTransformHandler,
+  proxyPlaceholderTransformHandler,
   metadataDropHandler,
   unsupportedTagTransformHandler
 ];
@@ -194,15 +307,174 @@ function replaceDropDowns(htmlContent: string): string {
       body = content.replace(HOTSPOT_REGEX, "");
     }
 
+    // Unwrap dropDownHead / dropDownBody wrappers but preserve their inner
+    // content. They're structural — Flare uses them as XML grouping inside
+    // the dropDown — and would otherwise survive into the rendered <details>
+    // body where the unsupported-tag handler would warn on them.
+    body = body.replace(DROPDOWN_HEAD_REGEX, (_match, inner: string) => inner);
+    body = body.replace(DROPDOWN_BODY_REGEX, (_match, inner: string) => inner);
+
     const title = declaredTitle?.trim() || hotspotTitle || (tagName === "dropDown" ? "Details" : "Expand");
     return `<details class="madcap-${tagName.toLowerCase()}"><summary>${escapeHtml(title)}</summary><div class="madcap-expandable-content">${body}</div></details>`;
   });
+}
+
+/**
+ * Renders <MadCap:popup> as a <details> element. Structurally identical to
+ * dropDown: a wrapper with optional <MadCap:popupHead> (the trigger text)
+ * and <MadCap:popupBody> (the revealed content). In Flare's published
+ * output a popup is a click-to-open tooltip; we render it as a disclosure
+ * widget for the editing-pass preview because the semantics are the same:
+ * "trigger reveals content".
+ */
+function replacePopups(htmlContent: string): string {
+  return htmlContent.replace(POPUP_REGEX, (_full, _attributes: string, content: string) => {
+    let body = content;
+    let title = "";
+
+    // popupHead carries the trigger text. Extract it before unwrapping the
+    // wrapper so we can use it as the <summary>.
+    const headMatch = POPUP_HEAD_REGEX.exec(content);
+    POPUP_HEAD_REGEX.lastIndex = 0;
+    if (headMatch) {
+      title = stripTags(headMatch[1]).trim();
+      body = body.replace(POPUP_HEAD_REGEX, "");
+    }
+
+    // popupBody is a transparent wrapper around the revealed content.
+    body = body.replace(POPUP_BODY_REGEX, (_match, inner: string) => inner);
+
+    if (!title) {
+      title = "Show details";
+    }
+
+    return `<details class="madcap-popup"><summary>${escapeHtml(title)}</summary><div class="madcap-popup-body">${body}</div></details>`;
+  });
+}
+
+/**
+ * Renders `<MadCap:relatedTopics>` blocks as a small navigation aside.
+ *
+ * Each `<MadCap:relatedTopic href="…" />` child becomes a list item with the
+ * basename of its href as the link text. We don't try to look up the target
+ * topic's H1 here (that would require an async pass and the topic index) —
+ * the basename is good enough for an editing-pass preview, and authors who
+ * want richer link text can hover the rendered link to see the full href in
+ * the title attribute.
+ *
+ * Self-closing `<MadCap:relatedTopics />` (no children) is silently dropped.
+ */
+function replaceRelatedTopics(htmlContent: string): string {
+  let transformed = htmlContent.replace(RELATED_TOPICS_REGEX, (_full, body: string) => {
+    const items: string[] = [];
+    RELATED_TOPIC_ITEM_REGEX.lastIndex = 0;
+    let itemMatch = RELATED_TOPIC_ITEM_REGEX.exec(body);
+    while (itemMatch) {
+      const attrs = itemMatch[1] ?? "";
+      const href = readAttribute(attrs, ["href", "src"]) ?? "";
+      if (href.length > 0) {
+        const display = relatedTopicLinkText(href);
+        const safeHref = escapeHtml(href);
+        items.push(
+          `<li><a class="madcap-related-topic" href="#" data-flare-href="${safeHref}" title="${safeHref}">${escapeHtml(display)}</a></li>`
+        );
+      }
+      itemMatch = RELATED_TOPIC_ITEM_REGEX.exec(body);
+    }
+    if (items.length === 0) {
+      return "";
+    }
+    return `<aside class="madcap-related-topics"><h3 class="madcap-related-topics-header">Related topics</h3><ul>${items.join("")}</ul></aside>`;
+  });
+
+  // Self-closing variant: no children, nothing to render.
+  transformed = transformed.replace(RELATED_TOPICS_SELF_CLOSING_REGEX, "");
+  return transformed;
+}
+
+function relatedTopicLinkText(href: string): string {
+  // Strip a trailing fragment / query string and use the basename of what
+  // remains. Falls back to the full href if the basename is empty.
+  const withoutHash = href.replace(/[#?].*$/, "");
+  const lastSlash = Math.max(withoutHash.lastIndexOf("/"), withoutHash.lastIndexOf("\\"));
+  const basename = withoutHash.slice(lastSlash + 1);
+  return basename.length > 0 ? basename : href;
+}
+
+/**
+ * Renders every MadCap proxy element as a stylized neutral placeholder.
+ * Handles both `<MadCap:fooProxy />` (the common form) and the rarer
+ * `<MadCap:fooProxy>…</MadCap:fooProxy>` open/close form. The placeholder
+ * carries the human-readable proxy flavor in its body so authors can see
+ * at a glance which kind of build-time content goes there.
+ */
+function replaceProxies(htmlContent: string): string {
+  let transformed = htmlContent.replace(
+    PROXY_BLOCK_REGEX,
+    (_full, proxyName: string) => renderProxyPlaceholder(proxyName)
+  );
+  transformed = transformed.replace(
+    PROXY_SELF_CLOSING_REGEX,
+    (_full, proxyName: string) => renderProxyPlaceholder(proxyName)
+  );
+  return transformed;
+}
+
+/**
+ * Builds the HTML for one proxy placeholder. The label is the proxy name
+ * with the trailing `Proxy` suffix stripped and any camelCase boundaries
+ * humanized — `miniTocProxy` becomes "Mini Toc", `glossaryProxy` becomes
+ * "Glossary", `searchBarProxy` becomes "Search Bar", etc. — so authors
+ * see the proxy *kind* without having to mentally parse the tag name.
+ */
+function renderProxyPlaceholder(proxyName: string): string {
+  const label = humanizeProxyName(proxyName);
+  const safeLabel = escapeHtml(label);
+  const safeName = escapeHtml(proxyName);
+  return `<div class="madcap-proxy-placeholder" data-proxy="${safeName}"><span class="madcap-proxy-placeholder-icon">▢</span><div class="madcap-proxy-placeholder-text"><strong>${safeLabel}</strong> proxy<br /><span class="madcap-proxy-placeholder-hint">A <code>&lt;MadCap:${safeName}/&gt;</code> placeholder. Flare's compiler will replace this with generated content at build time.</span></div></div>`;
+}
+
+function humanizeProxyName(proxyName: string): string {
+  // Drop the trailing "Proxy" suffix (case-insensitive).
+  const stripped = proxyName.replace(/proxy$/i, "");
+  if (stripped.length === 0) {
+    return "Proxy";
+  }
+  // Insert spaces at lowercase→uppercase boundaries so camelCase becomes
+  // human-readable: `miniToc` → `mini Toc`. Then capitalize each word.
+  const spaced = stripped.replace(/([a-z])([A-Z])/g, "$1 $2");
+  return spaced
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 async function replaceSnippets(
   htmlContent: string,
   context: TransformContext,
   warnings: string[]
+): Promise<string> {
+  // Top-level pass: snippets resolve relative to the current topic, no
+  // visited set (the topic is the entry point and isn't a snippet itself).
+  return expandSnippetsIn(htmlContent, context, warnings, undefined, new Set<string>());
+}
+
+/**
+ * Recursive snippet expansion. Used for both the top-level topic body and
+ * for any snippet body loaded via {@link loadSnippet} that itself contains
+ * `<MadCap:snippet>` references. The `baseDir` argument overrides the path
+ * resolver's default (`context.currentDocument`) so a nested snippet's
+ * relative path is resolved against the *outer snippet's* directory rather
+ * than the topic's. The `visited` set carries the absolute paths of every
+ * snippet currently being expanded so a cycle doesn't infinite loop.
+ */
+async function expandSnippetsIn(
+  htmlContent: string,
+  context: TransformContext,
+  warnings: string[],
+  baseDir: string | undefined,
+  visited: Set<string>
 ): Promise<string> {
   let transformed = htmlContent;
 
@@ -211,7 +483,8 @@ async function replaceSnippets(
     SNIPPET_SELF_CLOSING_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings);
+      const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
+      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
     }
   );
 
@@ -220,7 +493,8 @@ async function replaceSnippets(
     SNIPPET_BLOCK_REGEX,
     async (_full: string, _tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
-      return loadSnippet(src, context, warnings);
+      const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
+      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
     }
   );
 
@@ -277,42 +551,115 @@ function shouldRenderCondition(conditionValue: string | undefined): boolean {
   return true;
 }
 
+const MAX_SNIPPET_DEPTH = 32;
+
 async function loadSnippet(
   snippetSource: string | undefined,
   context: TransformContext,
-  warnings: string[]
+  warnings: string[],
+  baseDir: string | undefined,
+  visited: Set<string>,
+  conditionExpression: string | undefined = undefined
 ): Promise<string> {
   if (!snippetSource) {
     warnings.push("Snippet tag missing src/source attribute.");
     return "<div class=\"madcap-missing-snippet\">[Snippet missing source]</div>";
   }
 
-  const resolvedPath = resolveSnippetPath(snippetSource, context);
+  const resolvedPath = resolveSnippetPath(snippetSource, context, baseDir);
   if (!resolvedPath) {
     warnings.push(`Snippet path could not be resolved: ${snippetSource}`);
     return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
   }
 
+  // Cycle detection. If a snippet eventually references itself (or enters
+  // a chain that loops back to a snippet currently being expanded) we hard-
+  // stop here with a warning instead of stack-overflowing. Also defense in
+  // depth: cap recursion at MAX_SNIPPET_DEPTH so a deeply (legitimately)
+  // nested snippet chain can't run away either.
+  const normalizedPath = path.normalize(resolvedPath);
+  if (visited.has(normalizedPath)) {
+    warnings.push(`Circular snippet reference detected: ${snippetSource}`);
+    return `<div class=\"madcap-missing-snippet\">[Circular snippet: ${escapeHtml(snippetSource)}]</div>`;
+  }
+  if (visited.size >= MAX_SNIPPET_DEPTH) {
+    warnings.push(`Snippet nesting depth exceeded ${MAX_SNIPPET_DEPTH}: ${snippetSource}`);
+    return `<div class=\"madcap-missing-snippet\">[Snippet too deeply nested: ${escapeHtml(snippetSource)}]</div>`;
+  }
+
+  let raw: string;
   try {
     const bytes = await fs.readFile(resolvedPath);
-    return Buffer.from(bytes).toString("utf8");
+    raw = Buffer.from(bytes).toString("utf8");
   } catch {
     warnings.push(`Snippet file missing: ${resolvedPath}`);
     return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;
   }
+
+  // Substitute variables inside the snippet body before recursing. The
+  // variable handler in the top-level pipeline runs once on the topic
+  // before the snippet handler, so any <MadCap:variable> references
+  // appearing inside loaded snippet content never get resolved by the
+  // top-level pass and would otherwise reach the unsupported-tag fallback.
+  // (xref and conditionalText inside snippets are still not re-processed —
+  // see the known limitation above.)
+  let processed = replaceMadcapVariables(raw, context.variables, warnings);
+
+  // Recursively expand any nested <MadCap:snippet> / <MadCap:snippetBlock> /
+  // <MadCap:snippetText> references inside this snippet body. The recursion
+  // uses *this* snippet's directory as the base path so nested relative
+  // references resolve correctly (e.g. "../sn-tip.flsnp" inside a snippet
+  // resolves relative to the snippet's folder, not the topic's). The
+  // visited set is forked per-branch so two snippets can both legitimately
+  // reference the same shared sub-snippet without false-positive cycle
+  // warnings.
+  const nextVisited = new Set(visited);
+  nextVisited.add(normalizedPath);
+  const nextBaseDir = path.dirname(resolvedPath);
+  processed = await expandSnippetsIn(processed, context, warnings, nextBaseDir, nextVisited);
+
+  // If the snippet include element has a MadCap:conditionTagExpression attribute,
+  // apply that expression to filter the snippet's content. This allows authors to
+  // conditionally show/hide parts of a snippet based on the build target without
+  // modifying the snippet file itself.
+  if (conditionExpression) {
+    const expression = parseTargetExpression(conditionExpression);
+    const result = applyConditions(processed, {
+      expression,
+      showBadges: context.showConditionBadges ?? false
+    });
+    processed = result.html;
+  }
+
+  return processed;
 }
 
-function resolveSnippetPath(source: string, context: TransformContext): string | undefined {
+/**
+ * Resolves a snippet `src` attribute to an absolute filesystem path.
+ *
+ *   - Absolute paths are returned as-is.
+ *   - Relative paths are tried first against `baseDir` (the directory of
+ *     the *containing* file — either the current topic for top-level
+ *     snippets, or the parent snippet's directory for nested snippets) and
+ *     then against the project root.
+ *   - When `baseDir` is undefined (top-level call), it defaults to the
+ *     directory of the current topic.
+ */
+function resolveSnippetPath(
+  source: string,
+  context: TransformContext,
+  baseDir: string | undefined
+): string | undefined {
   const normalized = source.replace(/\\/g, "/");
 
   if (path.isAbsolute(normalized)) {
     return normalized;
   }
 
-  const documentDir = path.dirname(context.currentDocument.fsPath);
-  const candidateFromDoc = path.resolve(documentDir, normalized);
-  if (pathExists(candidateFromDoc)) {
-    return candidateFromDoc;
+  const effectiveBase = baseDir ?? path.dirname(context.currentDocument.fsPath);
+  const candidateFromBase = path.resolve(effectiveBase, normalized);
+  if (pathExists(candidateFromBase)) {
+    return candidateFromBase;
   }
 
   if (context.projectContext) {
@@ -322,7 +669,7 @@ function resolveSnippetPath(source: string, context: TransformContext): string |
     }
   }
 
-  return candidateFromDoc;
+  return candidateFromBase;
 }
 
 function pathExists(candidate: string): boolean {
@@ -366,16 +713,24 @@ async function replaceMatchesAsync(
   regex: RegExp,
   replacer: (...args: string[]) => Promise<string>
 ): Promise<string> {
-  regex.lastIndex = 0;
+  // Clone the regex so this call has its own lastIndex state. Without this,
+  // recursive calls (snippet expansion → loadSnippet → expandSnippetsIn →
+  // replaceMatchesAsync on the same module-level regex object) would
+  // corrupt the outer iteration's lastIndex while the inner call was
+  // running, silently truncating the outer content after the first nested
+  // match. Module-level RegExp objects with the `g` flag carry mutable
+  // state, so any helper that wants to be reentrant has to make a fresh
+  // copy per call.
+  const localRegex = new RegExp(regex.source, regex.flags);
   let result = "";
   let lastIndex = 0;
 
-  let match = regex.exec(input);
+  let match = localRegex.exec(input);
   while (match) {
     result += input.slice(lastIndex, match.index);
     result += await replacer(...match);
     lastIndex = match.index + match[0].length;
-    match = regex.exec(input);
+    match = localRegex.exec(input);
   }
 
   result += input.slice(lastIndex);

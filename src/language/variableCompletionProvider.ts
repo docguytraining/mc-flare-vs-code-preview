@@ -120,12 +120,19 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
     // means typing "Trust Pro" in "…love Trust Pro|" still matches the full
     // "Trust Protection Foundation" even though the bare last word "Pro"
     // would also be a candidate.
+    //
+    // Only use qualified variable names (Set.Name) in value-prefix completions.
+    // Bare names are ambiguous when multiple variable sets define the same
+    // variable name, and using them can result in broken references that don't
+    // resolve correctly in the preview or in Flare.
     const items: vscode.CompletionItem[] = [];
-    const seenVariableNames = new Set<string>();
+    const seenValues = new Map<string, string>(); // value -> qualified name
     for (const [name, value] of variables.entries()) {
-      if (seenVariableNames.has(name)) {
+      // Skip bare names — only use qualified names (containing a dot)
+      if (!name.includes(".")) {
         continue;
       }
+
       const trimmedValue = value.trim();
       if (ignoredValues.has(trimmedValue)) {
         continue;
@@ -144,7 +151,24 @@ export class VariableCompletionProvider implements vscode.CompletionItemProvider
       if (!matchedCandidate) {
         continue;
       }
-      seenVariableNames.add(name);
+
+      // If multiple qualified names have the same value (e.g., two different
+      // sets both define a variable with the same resolved value), use the
+      // first one encountered. The variables map iterates in insertion order,
+      // and qualified names are inserted before their bare fallbacks.
+      if (seenValues.has(trimmedValue)) {
+        continue;
+      }
+
+      seenValues.set(trimmedValue, name);
+    }
+
+    // Build completion items from the deduplicated value map
+    for (const [trimmedValue, name] of seenValues.entries()) {
+      const matchedCandidate = candidates.find((c) => trimmedValue.startsWith(c.text));
+      if (!matchedCandidate) {
+        continue; // Should not happen, but guard anyway
+      }
 
       const replaceRange = new vscode.Range(matchedCandidate.start, position);
       const item = new vscode.CompletionItem(
