@@ -65,6 +65,21 @@ const RELATED_TOPIC_ITEM_REGEX = /<MadCap:relatedTopic\b([^>]*)\/>/gi;
 // inner content flows back into the surrounding paragraph naturally.
 const CONDITIONAL_TEXT_REGEX = /<MadCap:conditionalText\b[^>]*>([\s\S]*?)<\/MadCap:conditionalText>/gi;
 const CONDITIONAL_TEXT_SELF_CLOSING_REGEX = /<MadCap:conditionalText\b[^>]*\/>/gi;
+// <MadCap:footnote> is an inline footnote with the footnote text as its
+// children. We render it as a superscript dagger that carries the inner
+// text as a hover tooltip — we don't have a numbering pass.
+const FOOTNOTE_REGEX = /<MadCap:footnote\b[^>]*>([\s\S]*?)<\/MadCap:footnote>/gi;
+const FOOTNOTE_SELF_CLOSING_REGEX = /<MadCap:footnote\b[^>]*\/>/gi;
+// <MadCap:concept> is a topic-classification anchor (like a tag) with no
+// visible content. Drop it.
+const CONCEPT_REGEX = /<MadCap:concept\b[^>]*>([\s\S]*?)<\/MadCap:concept>/gi;
+const CONCEPT_SELF_CLOSING_REGEX = /<MadCap:concept\b[^>]*\/>/gi;
+// <MadCap:popup> is a tooltip-on-click element with a hotspot and a body.
+// Same structural shape as <MadCap:dropDown>, so we render it as a
+// <details>/<summary> pair too.
+const POPUP_REGEX = /<MadCap:popup\b([^>]*)>([\s\S]*?)<\/MadCap:popup>/gi;
+const POPUP_HEAD_REGEX = /<MadCap:popupHead\b[^>]*>([\s\S]*?)<\/MadCap:popupHead>/gi;
+const POPUP_BODY_REGEX = /<MadCap:popupBody\b[^>]*>([\s\S]*?)<\/MadCap:popupBody>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -105,7 +120,9 @@ const conditionalTransformHandler: TransformHandler = {
 const dropDownTransformHandler: TransformHandler = {
   id: "dropdown-expandable",
   run(htmlContent) {
-    return replaceDropDowns(htmlContent);
+    let transformed = replaceDropDowns(htmlContent);
+    transformed = replacePopups(transformed);
+    return transformed;
   }
 };
 
@@ -142,6 +159,16 @@ const relatedTopicsTransformHandler: TransformHandler = {
  * is then transparent — its job is done and we want its inner content to
  * flow back into the surrounding paragraph as if the wrapper had never
  * been there.
+ *
+ * Three more tags handled here for completeness:
+ *   - <MadCap:concept> — topic-classification anchor with no visible
+ *     content. Drop entirely.
+ *   - <MadCap:footnote> — inline footnote with the footnote text as its
+ *     children. Render as a small superscript dagger that carries the
+ *     inner text as a hover tooltip. We don't have Flare's footnote-
+ *     numbering pass so the marker is the same for every footnote in the
+ *     topic; that's a known limitation but lets the rendered topic stay
+ *     readable instead of dropping the footnote text entirely.
  */
 const metadataDropHandler: TransformHandler = {
   id: "metadata-drop",
@@ -157,6 +184,17 @@ const metadataDropHandler: TransformHandler = {
       (_full, body: string) => body
     );
     transformed = transformed.replace(CONDITIONAL_TEXT_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(CONCEPT_REGEX, "");
+    transformed = transformed.replace(CONCEPT_SELF_CLOSING_REGEX, "");
+    transformed = transformed.replace(FOOTNOTE_REGEX, (_full, body: string) => {
+      const footnoteText = stripTags(body).trim();
+      const tooltip = footnoteText.length > 0 ? footnoteText : "footnote";
+      return `<sup class="madcap-footnote" title="${escapeHtml(tooltip)}">†</sup>`;
+    });
+    transformed = transformed.replace(
+      FOOTNOTE_SELF_CLOSING_REGEX,
+      `<sup class="madcap-footnote" title="footnote">†</sup>`
+    );
     return transformed;
   }
 };
@@ -246,6 +284,39 @@ function replaceDropDowns(htmlContent: string): string {
 
     const title = declaredTitle?.trim() || hotspotTitle || (tagName === "dropDown" ? "Details" : "Expand");
     return `<details class="madcap-${tagName.toLowerCase()}"><summary>${escapeHtml(title)}</summary><div class="madcap-expandable-content">${body}</div></details>`;
+  });
+}
+
+/**
+ * Renders <MadCap:popup> as a <details> element. Structurally identical to
+ * dropDown: a wrapper with optional <MadCap:popupHead> (the trigger text)
+ * and <MadCap:popupBody> (the revealed content). In Flare's published
+ * output a popup is a click-to-open tooltip; we render it as a disclosure
+ * widget for the editing-pass preview because the semantics are the same:
+ * "trigger reveals content".
+ */
+function replacePopups(htmlContent: string): string {
+  return htmlContent.replace(POPUP_REGEX, (_full, _attributes: string, content: string) => {
+    let body = content;
+    let title = "";
+
+    // popupHead carries the trigger text. Extract it before unwrapping the
+    // wrapper so we can use it as the <summary>.
+    const headMatch = POPUP_HEAD_REGEX.exec(content);
+    POPUP_HEAD_REGEX.lastIndex = 0;
+    if (headMatch) {
+      title = stripTags(headMatch[1]).trim();
+      body = body.replace(POPUP_HEAD_REGEX, "");
+    }
+
+    // popupBody is a transparent wrapper around the revealed content.
+    body = body.replace(POPUP_BODY_REGEX, (_match, inner: string) => inner);
+
+    if (!title) {
+      title = "Show details";
+    }
+
+    return `<details class="madcap-popup"><summary>${escapeHtml(title)}</summary><div class="madcap-popup-body">${body}</div></details>`;
   });
 }
 
@@ -394,7 +465,19 @@ async function loadSnippet(
 
   try {
     const bytes = await fs.readFile(resolvedPath);
-    return Buffer.from(bytes).toString("utf8");
+    const raw = Buffer.from(bytes).toString("utf8");
+    // Substitute variables inside the snippet body before returning. The
+    // variable handler runs *before* the snippet handler in the pipeline,
+    // so by the time the snippet content lands in the topic stream, the
+    // top-level pipeline pass is already past the variable phase. Without
+    // this in-snippet substitution, every <MadCap:variable> reference
+    // inside a snippet would survive to the unsupported-tag fallback and
+    // generate a spurious "Unsupported MadCap tag encountered: variable"
+    // warning. Same risk applies to other handlers (xref, conditionalText)
+    // — but variable references are by far the most common case in real
+    // Flare projects, so we fix that first and accept the lesser surface
+    // for the others as a known limitation.
+    return replaceMadcapVariables(raw, context.variables, warnings);
   } catch {
     warnings.push(`Snippet file missing: ${resolvedPath}`);
     return `<div class=\"madcap-missing-snippet\">[Snippet not found: ${escapeHtml(snippetSource)}]</div>`;

@@ -200,6 +200,45 @@ body.flare-preview-body {
   text-decoration: underline;
 }
 
+/* <MadCap:footnote> renders as a small superscript dagger; the inner
+   text is preserved in the title attribute as a hover tooltip. */
+.topic-frame sup.madcap-footnote {
+  color: #2563eb;
+  cursor: help;
+  font-weight: 600;
+  margin-left: 1px;
+}
+
+/* <MadCap:popup> renders as a <details> element using the popupHead text
+   as its summary. Visually distinct from <MadCap:dropDown> with a slightly
+   muted appearance — popups are inline tooltips, not full disclosure
+   sections. */
+.topic-frame details.madcap-popup {
+  display: inline-block;
+  margin: 0 2px;
+}
+
+.topic-frame details.madcap-popup > summary {
+  display: inline;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.topic-frame details.madcap-popup > summary:hover {
+  text-decoration: underline;
+}
+
+.topic-frame details.madcap-popup > .madcap-popup-body {
+  display: block;
+  margin: 0.4rem 0 0.4rem 1rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid #94a3b8;
+  background: #f4f7fb;
+  color: #1f1f1f;
+  font-size: 0.95em;
+}
+
 .topic-frame a.flare-xref {
   color: #0366d6;
   text-decoration: none;
