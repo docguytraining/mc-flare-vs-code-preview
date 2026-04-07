@@ -36,13 +36,25 @@ const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)[
 const CONDITIONAL_BLOCK_REGEX = /<MadCap:conditionalBlock\b([^>]*)>([\s\S]*?)<\/MadCap:conditionalBlock>/gi;
 const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
-const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)\/>/gi;
-const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
+// dropDownHead / dropDownBody are structural wrapper elements inside a
+// <MadCap:dropDown>. The dropDown handler already consumes the hotspot, but
+// the wrappers themselves survive into the rendered <details> body unless we
+// also strip them — leaving their inner content intact.
+const DROPDOWN_HEAD_REGEX = /<MadCap:dropDownHead\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHead>/gi;
+const DROPDOWN_BODY_REGEX = /<MadCap:dropDownBody\b[^>]*>([\s\S]*?)<\/MadCap:dropDownBody>/gi;
+const SNIPPET_SELF_CLOSING_REGEX = /<MadCap:(snippet|snippetBlock|snippetText)\b([^>]*)\/>/gi;
+const SNIPPET_BLOCK_REGEX = /<MadCap:(snippet|snippetBlock|snippetText)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const XREF_SELF_CLOSING_REGEX = /<MadCap:xref\b([^>]*)\/>/gi;
 const XREF_BLOCK_REGEX = /<MadCap:xref\b([^>]*)>([\s\S]*?)<\/MadCap:xref>/gi;
 const KEYWORD_TAG_REGEX = /<MadCap:keyword\b[^>]*\/>|<MadCap:keyword\b[^>]*>[\s\S]*?<\/MadCap:keyword>/gi;
 const ANNOTATION_BLOCK_REGEX = /<MadCap:annotation\b[^>]*>([\s\S]*?)<\/MadCap:annotation>/gi;
 const ANNOTATION_SELF_CLOSING_REGEX = /<MadCap:annotation\b[^>]*\/>/gi;
+// Related topics: a <MadCap:relatedTopics> container with one or more
+// self-closing <MadCap:relatedTopic href="…" /> children. Rendered as a
+// small navigation aside in the preview so authors can see the references.
+const RELATED_TOPICS_REGEX = /<MadCap:relatedTopics\b[^>]*>([\s\S]*?)<\/MadCap:relatedTopics>/gi;
+const RELATED_TOPICS_SELF_CLOSING_REGEX = /<MadCap:relatedTopics\b[^>]*\/>/gi;
+const RELATED_TOPIC_ITEM_REGEX = /<MadCap:relatedTopic\b([^>]*)\/>/gi;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -101,6 +113,13 @@ const xrefTransformHandler: TransformHandler = {
   }
 };
 
+const relatedTopicsTransformHandler: TransformHandler = {
+  id: "related-topics",
+  run(htmlContent) {
+    return replaceRelatedTopics(htmlContent);
+  }
+};
+
 /**
  * Silently drops authoring/metadata tags whose content (or absence of
  * content) should never appear in the rendered preview. Runs before the
@@ -132,6 +151,7 @@ const REGISTERED_HANDLERS: TransformHandler[] = [
   dropDownTransformHandler,
   snippetTransformHandler,
   xrefTransformHandler,
+  relatedTopicsTransformHandler,
   metadataDropHandler,
   unsupportedTagTransformHandler
 ];
@@ -194,9 +214,65 @@ function replaceDropDowns(htmlContent: string): string {
       body = content.replace(HOTSPOT_REGEX, "");
     }
 
+    // Unwrap dropDownHead / dropDownBody wrappers but preserve their inner
+    // content. They're structural — Flare uses them as XML grouping inside
+    // the dropDown — and would otherwise survive into the rendered <details>
+    // body where the unsupported-tag handler would warn on them.
+    body = body.replace(DROPDOWN_HEAD_REGEX, (_match, inner: string) => inner);
+    body = body.replace(DROPDOWN_BODY_REGEX, (_match, inner: string) => inner);
+
     const title = declaredTitle?.trim() || hotspotTitle || (tagName === "dropDown" ? "Details" : "Expand");
     return `<details class="madcap-${tagName.toLowerCase()}"><summary>${escapeHtml(title)}</summary><div class="madcap-expandable-content">${body}</div></details>`;
   });
+}
+
+/**
+ * Renders `<MadCap:relatedTopics>` blocks as a small navigation aside.
+ *
+ * Each `<MadCap:relatedTopic href="…" />` child becomes a list item with the
+ * basename of its href as the link text. We don't try to look up the target
+ * topic's H1 here (that would require an async pass and the topic index) —
+ * the basename is good enough for an editing-pass preview, and authors who
+ * want richer link text can hover the rendered link to see the full href in
+ * the title attribute.
+ *
+ * Self-closing `<MadCap:relatedTopics />` (no children) is silently dropped.
+ */
+function replaceRelatedTopics(htmlContent: string): string {
+  let transformed = htmlContent.replace(RELATED_TOPICS_REGEX, (_full, body: string) => {
+    const items: string[] = [];
+    RELATED_TOPIC_ITEM_REGEX.lastIndex = 0;
+    let itemMatch = RELATED_TOPIC_ITEM_REGEX.exec(body);
+    while (itemMatch) {
+      const attrs = itemMatch[1] ?? "";
+      const href = readAttribute(attrs, ["href", "src"]) ?? "";
+      if (href.length > 0) {
+        const display = relatedTopicLinkText(href);
+        const safeHref = escapeHtml(href);
+        items.push(
+          `<li><a class="madcap-related-topic" href="#" data-flare-href="${safeHref}" title="${safeHref}">${escapeHtml(display)}</a></li>`
+        );
+      }
+      itemMatch = RELATED_TOPIC_ITEM_REGEX.exec(body);
+    }
+    if (items.length === 0) {
+      return "";
+    }
+    return `<aside class="madcap-related-topics"><h3 class="madcap-related-topics-header">Related topics</h3><ul>${items.join("")}</ul></aside>`;
+  });
+
+  // Self-closing variant: no children, nothing to render.
+  transformed = transformed.replace(RELATED_TOPICS_SELF_CLOSING_REGEX, "");
+  return transformed;
+}
+
+function relatedTopicLinkText(href: string): string {
+  // Strip a trailing fragment / query string and use the basename of what
+  // remains. Falls back to the full href if the basename is empty.
+  const withoutHash = href.replace(/[#?].*$/, "");
+  const lastSlash = Math.max(withoutHash.lastIndexOf("/"), withoutHash.lastIndexOf("\\"));
+  const basename = withoutHash.slice(lastSlash + 1);
+  return basename.length > 0 ? basename : href;
 }
 
 async function replaceSnippets(

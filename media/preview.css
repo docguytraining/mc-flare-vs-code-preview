@@ -157,6 +157,49 @@ body.flare-preview-body {
   color: #1f2a44;
 }
 
+/*
+ * <MadCap:relatedTopics> aside. Rendered inside `.topic-frame` (so it
+ * inherits the white sheet of paper background), styled as a small
+ * navigation block — bordered, indented, slightly muted — so it sits
+ * apart from the main topic prose.
+ */
+.topic-frame aside.madcap-related-topics {
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #5a8dee;
+  background: #f4f7fb;
+  color: #1f1f1f;
+}
+
+.topic-frame .madcap-related-topics-header {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4a5b75;
+}
+
+.topic-frame aside.madcap-related-topics ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  list-style: disc;
+}
+
+.topic-frame aside.madcap-related-topics li {
+  margin: 0.15rem 0;
+  color: #1f1f1f;
+}
+
+.topic-frame a.madcap-related-topic {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.topic-frame a.madcap-related-topic:hover {
+  text-decoration: underline;
+}
+
 .topic-frame a.flare-xref {
   color: #0366d6;
   text-decoration: none;
