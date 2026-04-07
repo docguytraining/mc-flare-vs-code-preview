@@ -1,7 +1,7 @@
 {
   "name": "mc-flare-vs-code-preview",
-  "displayName": "MadCap Flare Preview",
-  "description": "Preview MadCap Flare HTML topics in VS Code with Flare-aware rendering of variables, snippets, conditionals, and stylesheets.",
+  "displayName": "Toolkit for MadCap Flare",
+  "description": "Unofficial VS Code toolkit for editing existing MadCap Flare™ topics. Requires a Flare license. Not affiliated with MadCap Software, Inc.",
   "version": "0.1.1",
   "publisher": "DocGuyTraining",
   "author": {
@@ -28,11 +28,13 @@
   "keywords": [
     "madcap",
     "flare",
+    "madcap flare",
     "html",
     "preview",
     "documentation",
     "technical writing",
-    "help authoring"
+    "tech writing",
+    "doc tools"
   ],
   "activationEvents": [
     "onLanguage:html",
@@ -43,25 +45,26 @@
     "commands": [
       {
         "command": "flare.previewHtml",
-        "title": "Flare Preview",
-        "shortTitle": "Flare Preview",
-        "category": "Flare"
+        "title": "Live Preview",
+        "shortTitle": "Live Preview",
+        "category": "Flare Toolkit",
+        "icon": "$(open-preview)"
       },
       {
         "command": "flare.insertXref",
-        "title": "Flare: Insert Cross-Reference",
-        "category": "Flare"
+        "title": "Insert Cross-Reference",
+        "category": "Flare Toolkit"
       },
       {
         "command": "flare.dismissVariableSuggestion",
-        "title": "Flare: Dismiss Variable Suggestion",
-        "category": "Flare",
+        "title": "Dismiss Variable Suggestion",
+        "category": "Flare Toolkit",
         "enablement": "false"
       },
       {
         "command": "flare.dismissVariableSuggestionInTopic",
-        "title": "Flare: Dismiss Variable Suggestion (Topic)",
-        "category": "Flare",
+        "title": "Dismiss Variable Suggestion (Topic)",
+        "category": "Flare Toolkit",
         "enablement": "false"
       }
     ],
@@ -70,7 +73,7 @@
         {
           "command": "flare.previewHtml",
           "when": "resourceExtname == .htm || resourceExtname == .html",
-          "group": "navigation"
+          "group": "navigation@1"
         }
       ],
       "editor/context": [
@@ -89,7 +92,7 @@
       ]
     },
     "configuration": {
-      "title": "MadCap Flare Preview",
+      "title": "Toolkit for MadCap Flare",
       "properties": {
         "flarePreview.autoRefreshOnSave": {
           "type": "boolean",

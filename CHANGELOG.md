@@ -4,8 +4,21 @@ All notable changes to the MadCap Flare Preview extension are documented here.
 
 ## [0.1.1] — 2026-04-07
 
+### Changed (rebranding)
+- **Display name** updated from "MadCap Flare Preview" to **"Toolkit for MadCap Flare"** to clarify this is an unofficial third-party project for *editing* existing Flare topic files, not a Flare replacement.
+- **Marketplace description** rewritten to lead with "Unofficial", to state that a MadCap Flare license is required, and to include the "Not affiliated with MadCap Software, Inc." disclaimer in the same sentence.
+- **Editor title bar button** now uses an icon (`$(open-preview)`) with a "Live Preview" hover label instead of branded button text.
+- **Command palette commands** are now grouped under the **Flare Toolkit** category. Renamed:
+  - `Flare Preview` → `Flare Toolkit: Live Preview`
+  - `Flare: Insert Cross-Reference` → `Flare Toolkit: Insert Cross-Reference`
+- **Settings page heading** updated from "MadCap Flare Preview" to "Toolkit for MadCap Flare".
+- **README** rewritten with a new hero, a "Why this extension exists" section that emphasizes complement-not-replacement, and a dedicated **Trademarks and disclaimer** section explaining that the project is independent and that MadCap™ and MadCap Flare™ are trademarks of MadCap Software, Inc.
+
 ### Fixed
 - Settings description for `flarePreview.suggestionIgnoreVariables` no longer references the old inline `<!-- flare:no-suggest -->` comment mechanism (removed in 0.1.0). The description now points authors at the "Never suggest X in this topic" code action, which writes to `.vscode/flare-preview.json` without modifying the topic file.
+
+### Notes
+- Command IDs (`flare.*`) and setting IDs (`flarePreview.*`) are intentionally **unchanged** so existing configurations and keybindings continue to work. These identifiers are descriptive (referencing the file format), not brand-claiming.
 
 ## [0.1.0] — Initial public release
 

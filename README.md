@@ -1,12 +1,16 @@
-# MadCap Flare Preview for VS Code
+# Toolkit for MadCap Flare
 
-Preview MadCap Flare topic files (`.htm` / `.html`) inside Visual Studio Code with full Flare-aware rendering, plus authoring assistance for variables, cross-references, and link validation. Designed for technical writers who edit Flare topics outside the Flare desktop application.
+An unofficial open-source toolkit for editing and previewing existing MadCap Flare™ topic files in Visual Studio Code. **Requires a MadCap Flare license** — this extension is a complement to Flare, not a replacement for it.
 
 ## Why this extension exists
 
-VS Code's built-in HTML preview doesn't understand any of Flare's proprietary tags or stylesheet conventions, so a Flare topic looks half-broken when you preview it. This extension fills the gap. It walks up from your topic to find the nearest `.flprj`, parses every `.flvar` in the project, applies the master and auxiliary stylesheets the way Flare's compiler would, transforms `<MadCap:variable>`, `<MadCap:conditionalBlock>`, `<MadCap:dropDown>`, `<MadCap:snippet>`, and `<MadCap:xref>` into real HTML, and renders the result in a webview that updates as you type.
+MadCap Flare is the authoring environment. Topics are written there, project structure is managed there, builds happen there, conditional output and target compilation all live there. **This extension does none of those things.**
 
-It is **not** a replacement for Flare. Build-time semantics, target-specific outputs, master pages, skins, and TOC compilation all remain Flare's job. The goal is "fast, accurate enough for authoring" — the kind of preview you want while you're writing, so you don't have to alt-tab to Flare just to check what a paragraph looks like.
+What it does is make the *editing pass* — the part where you're fixing typos, adjusting prose, reviewing variables, checking cross-references, validating links — pleasant to do in Visual Studio Code instead of having to round-trip back to the Flare desktop application every time. Many writers spend hours per day in this editing pass, often reviewing topics from a peer's branch or making small content changes between Flare sessions. This toolkit is for that workflow.
+
+It is **not** a replacement for Flare. You need a MadCap Flare license to author topics, manage projects, build outputs, and ship documentation. This toolkit only edits and previews source files that Flare itself produced.
+
+VS Code's built-in HTML preview doesn't understand any of Flare's proprietary tags or stylesheet conventions, so a Flare topic looks half-broken when you preview it. The toolkit fills that gap. It walks up from your topic to find the nearest `.flprj`, parses every `.flvar` in the project, applies the master and auxiliary stylesheets the way Flare's compiler would, transforms `<MadCap:variable>`, `<MadCap:conditionalBlock>`, `<MadCap:dropDown>`, `<MadCap:snippet>`, and `<MadCap:xref>` into real HTML, and renders the result in a webview that updates as you type.
 
 ## Features
 
@@ -20,7 +24,7 @@ It is **not** a replacement for Flare. Build-time semantics, target-specific out
 - **Click-through cross-references** — clicking a `<MadCap:xref>` link in the preview opens the target topic in the editor and reveals the anchor if one is present, restricted to paths inside the current workspace folder.
 - **Strict security model** — Content Security Policy with nonced scripts, workspace-scoped `localResourceRoots`, webview URI rewriting for local images and links, and an HTML/CSS sanitizer that strips `<script>`, `<iframe>`, `<object>`, inline `<style>`, meta refresh, inline event handlers, `javascript:` and non-image `data:` URLs, plus external CSS `@import` and `url()` references.
 
-### Authoring assistance
+### Editing assistance
 - **Variable inlay hints** — every `<MadCap:variable>` reference shows its resolved value inline next to the tag, so you can see what a topic actually says without running a build.
 - **Variable name completion** — typing inside `<MadCap:variable name="…">` opens a completion list of every variable in the project (qualified and bare forms).
 - **Value-prefix completion** — start typing prose that matches the beginning of a variable's value (e.g. `Trust Pro` for `Trust Protection Foundation`) and the completion popup offers to replace the typed text with the canonical `<MadCap:variable name="…" />` reference. Multi-word matching with longest-match wins, so mid-paragraph typing works the same as start-of-paragraph.
@@ -37,10 +41,12 @@ It is **not** a replacement for Flare. Build-time semantics, target-specific out
 
 ## Commands
 
-| Command | Title | Where |
+All commands are listed under the **Flare Toolkit** category in the Command Palette.
+
+| Command | Palette title | Where |
 |---|---|---|
-| `flare.previewHtml` | **Flare Preview** | Editor title bar (`.htm`/`.html`), Command Palette, Explorer context menu |
-| `flare.insertXref` | **Flare: Insert Cross-Reference** | Command Palette, editor context menu |
+| `flare.previewHtml` | **Flare Toolkit: Live Preview** | Editor title bar icon (`.htm` / `.html`), Command Palette, Explorer context menu |
+| `flare.insertXref` | **Flare Toolkit: Insert Cross-Reference** | Command Palette, editor context menu |
 
 ## Configuration
 
@@ -73,7 +79,7 @@ It is **not** a replacement for Flare. Build-time semantics, target-specific out
 - **Flare proxies** (breadcrumbs, TOC, glossary, mini-TOC, relationships) are not rendered.
 - **Master pages and skins** are not applied.
 - **Auto-numbering counters** (`{chapnum}`, `{Gn+}`, etc. inside `mc-auto-number-format`) are stripped because the extension has no Flare build context to evaluate them. Static label text (NOTE/TIP/WARNING etc.) renders correctly.
-- **The HTML sanitizer is regex-based** — adequate for trusted Flare topic content authored by you and your team, but not a replacement for a real DOM sanitizer if you ever feed it untrusted HTML.
+- **The HTML sanitizer is regex-based** — adequate for trusted Flare topic content from your own project, but not a replacement for a real DOM sanitizer if you ever feed it untrusted HTML.
 
 ## Requirements
 
@@ -82,10 +88,10 @@ It is **not** a replacement for Flare. Build-time semantics, target-specific out
 
 ## Getting Started
 
-1. Install the extension from the VS Code Marketplace.
+1. Install the toolkit from the VS Code Marketplace.
 2. Open the folder containing your Flare project's `.flprj` file.
 3. Open any `.htm` topic. Variable inlay hints appear immediately; the link validator populates the Problems panel.
-4. Click the **Flare Preview** button in the editor title bar (or run **Flare Preview** from the Command Palette) to open the rendered topic in a side panel.
+4. Click the **Live Preview** icon in the editor title bar (or run **Flare Toolkit: Live Preview** from the Command Palette) to open the rendered topic in a side panel.
 5. As you type, the preview refreshes automatically. Save to force an immediate refresh.
 
 ## Roadmap
@@ -102,8 +108,18 @@ Track progress in [`.project-plan.md`](.project-plan.md).
 
 ## Issues and feedback
 
-Bug reports, feature requests, and validation against your real Flare projects are very welcome at [github.com/docguytraining/mc-flare-vs-code-preview/issues](https://github.com/docguytraining/mc-flare-vs-code-preview/issues).
+Bug reports, feature requests, and validation results from your own Flare projects are very welcome at [github.com/docguytraining/mc-flare-vs-code-preview/issues](https://github.com/docguytraining/mc-flare-vs-code-preview/issues).
+
+**Please do not contact MadCap Software for support with this toolkit.** This is an independent project — issues and questions should come here instead.
+
+## Trademarks and disclaimer
+
+This toolkit is an independent open-source project. It is not affiliated with, sponsored by, or endorsed by MadCap Software, Inc.
+
+MadCap™ and MadCap Flare™ are trademarks of MadCap Software, Inc. and are used in this project only to identify the file format and authoring tool that this toolkit is designed to complement. This toolkit does not include or distribute any MadCap software, source code, or proprietary file format definitions.
+
+Use of this toolkit requires a valid MadCap Flare license. This project does not provide a way to author Flare topics, manage Flare projects, build Flare outputs, or otherwise replace any function of MadCap Flare itself.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Copyright © 2026 DocGuy Training.
