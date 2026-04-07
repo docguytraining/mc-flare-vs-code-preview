@@ -6,6 +6,7 @@ import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
 import { TopicIndex } from "./flare/topicIndex";
 import { SnippetIndex } from "./flare/snippetIndex";
+import { VariableIndex } from "./flare/variableIndex";
 import { ConditionTagIndex } from "./flare/conditionTagIndex";
 import { discoverTargets, SHOW_EVERYTHING_TARGET_ID, TargetEntry } from "./flare/targetIndex";
 import { parseTargetExpression } from "./flare/conditionExpression";
@@ -37,6 +38,12 @@ import { SnippetSrcCompletionProvider } from "./language/snippetSrcCompletionPro
 import { ExtractSnippetCodeActionProvider } from "./language/extractSnippetCodeActionProvider";
 import { registerInsertSnippetCommand } from "./commands/insertSnippetCommand";
 import { registerExtractSnippetCommand } from "./commands/extractSnippetCommand";
+import { registerInsertVariableCommand } from "./commands/insertVariableCommand";
+import { VariableBracketCompletionProvider } from "./language/variableBracketCompletionProvider";
+import {
+  LiteralToVariableCodeActionProvider,
+  registerReplaceSelectionWithVariableCommand
+} from "./language/literalToVariableCodeActionProvider";
 import {
   DiagnosticEntry,
   FlareProjectContext,
@@ -61,6 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const projectResolver = new FlareProjectResolver();
   const topicIndex = new TopicIndex();
   const snippetIndex = new SnippetIndex();
+  const variableIndex = new VariableIndex();
   const conditionTagIndex = new ConditionTagIndex();
   const dismissalStore = new DismissalStore();
   const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
@@ -518,6 +526,22 @@ export function activate(context: vscode.ExtensionContext): void {
     new ExtractSnippetCodeActionProvider(),
     ExtractSnippetCodeActionProvider.metadata
   );
+
+  const insertVariableRegistration = registerInsertVariableCommand(projectResolver, variableIndex);
+  const variableBracketCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new VariableBracketCompletionProvider(projectResolver, variableIndex),
+    "@"
+  );
+  const literalToVariableCodeActionRegistration = vscode.languages.registerCodeActionsProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new LiteralToVariableCodeActionProvider(projectResolver, variableIndex),
+    LiteralToVariableCodeActionProvider.metadata
+  );
+  const replaceSelectionWithVariableRegistration = registerReplaceSelectionWithVariableCommand(
+    projectResolver,
+    variableIndex
+  );
   const validateAllTopicsRegistration = registerValidateAllTopicsCommand(
     projectResolver,
     linkValidator
@@ -761,6 +785,10 @@ export function activate(context: vscode.ExtensionContext): void {
     snippetBracketCompletionRegistration,
     snippetSrcCompletionRegistration,
     extractSnippetCodeActionRegistration,
+    insertVariableRegistration,
+    variableBracketCompletionRegistration,
+    literalToVariableCodeActionRegistration,
+    replaceSelectionWithVariableRegistration,
     validateAllTopicsRegistration,
     renameReferencesRegistration,
     renameConditionTagRegistration,
