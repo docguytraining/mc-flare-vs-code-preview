@@ -80,6 +80,21 @@ const CONCEPT_SELF_CLOSING_REGEX = /<MadCap:concept\b[^>]*\/>/gi;
 const POPUP_REGEX = /<MadCap:popup\b([^>]*)>([\s\S]*?)<\/MadCap:popup>/gi;
 const POPUP_HEAD_REGEX = /<MadCap:popupHead\b[^>]*>([\s\S]*?)<\/MadCap:popupHead>/gi;
 const POPUP_BODY_REGEX = /<MadCap:popupBody\b[^>]*>([\s\S]*?)<\/MadCap:popupBody>/gi;
+// Generic match for any MadCap proxy element (`<MadCap:tocProxy />`,
+// `<MadCap:glossaryProxy />`, `<MadCap:miniTocProxy />`, etc.). Proxies are
+// build-time placeholders that Flare's compiler resolves into real content
+// (a generated TOC, a glossary list, breadcrumb links, an index, etc.).
+// We have no build context, so we render each one as a stylized neutral
+// block that tells the author "a `<flavor>` proxy will be inserted here at
+// build time" — visible enough that authors don't think the topic is
+// broken, generic enough that we don't have to special-case every proxy
+// flavor Flare ships.
+//
+// Matches both self-closing (`<MadCap:fooProxy />`) and open/close
+// (`<MadCap:fooProxy>…</MadCap:fooProxy>`, rare but legal) variants. The
+// captured group is the bare proxy name (e.g. `tocProxy`, `glossaryProxy`).
+const PROXY_SELF_CLOSING_REGEX = /<MadCap:([A-Za-z0-9_-]*[Pp]roxy)\b[^>]*\/>/g;
+const PROXY_BLOCK_REGEX = /<MadCap:([A-Za-z0-9_-]*[Pp]roxy)\b[^>]*>[\s\S]*?<\/MadCap:\1>/g;
 const REMAINING_MADCAP_TAG_REGEX = /<\/?\s*MadCap:([A-Za-z0-9_-]+)\b[^>]*>/gi;
 
 const variableTransformHandler: TransformHandler = {
@@ -144,6 +159,22 @@ const relatedTopicsTransformHandler: TransformHandler = {
   id: "related-topics",
   run(htmlContent) {
     return replaceRelatedTopics(htmlContent);
+  }
+};
+
+/**
+ * Replaces every MadCap proxy element with a stylized neutral placeholder
+ * block. Proxies are build-time only — Flare's compiler resolves them into
+ * generated content (TOC tree, glossary list, breadcrumb chain, index,
+ * etc.) — and we have no build context. The placeholder tells the author
+ * "this is where a `<flavor>` proxy will be inserted at build time" so the
+ * topic doesn't look broken in the preview without making us pretend we
+ * can render content we can't.
+ */
+const proxyPlaceholderTransformHandler: TransformHandler = {
+  id: "proxy-placeholders",
+  run(htmlContent) {
+    return replaceProxies(htmlContent);
   }
 };
 
@@ -213,6 +244,7 @@ const REGISTERED_HANDLERS: TransformHandler[] = [
   snippetTransformHandler,
   xrefTransformHandler,
   relatedTopicsTransformHandler,
+  proxyPlaceholderTransformHandler,
   metadataDropHandler,
   unsupportedTagTransformHandler
 ];
@@ -367,6 +399,55 @@ function relatedTopicLinkText(href: string): string {
   const lastSlash = Math.max(withoutHash.lastIndexOf("/"), withoutHash.lastIndexOf("\\"));
   const basename = withoutHash.slice(lastSlash + 1);
   return basename.length > 0 ? basename : href;
+}
+
+/**
+ * Renders every MadCap proxy element as a stylized neutral placeholder.
+ * Handles both `<MadCap:fooProxy />` (the common form) and the rarer
+ * `<MadCap:fooProxy>…</MadCap:fooProxy>` open/close form. The placeholder
+ * carries the human-readable proxy flavor in its body so authors can see
+ * at a glance which kind of build-time content goes there.
+ */
+function replaceProxies(htmlContent: string): string {
+  let transformed = htmlContent.replace(
+    PROXY_BLOCK_REGEX,
+    (_full, proxyName: string) => renderProxyPlaceholder(proxyName)
+  );
+  transformed = transformed.replace(
+    PROXY_SELF_CLOSING_REGEX,
+    (_full, proxyName: string) => renderProxyPlaceholder(proxyName)
+  );
+  return transformed;
+}
+
+/**
+ * Builds the HTML for one proxy placeholder. The label is the proxy name
+ * with the trailing `Proxy` suffix stripped and any camelCase boundaries
+ * humanized — `miniTocProxy` becomes "Mini Toc", `glossaryProxy` becomes
+ * "Glossary", `searchBarProxy` becomes "Search Bar", etc. — so authors
+ * see the proxy *kind* without having to mentally parse the tag name.
+ */
+function renderProxyPlaceholder(proxyName: string): string {
+  const label = humanizeProxyName(proxyName);
+  const safeLabel = escapeHtml(label);
+  const safeName = escapeHtml(proxyName);
+  return `<div class="madcap-proxy-placeholder" data-proxy="${safeName}"><span class="madcap-proxy-placeholder-icon">▢</span><div class="madcap-proxy-placeholder-text"><strong>${safeLabel}</strong> proxy<br /><span class="madcap-proxy-placeholder-hint">A <code>&lt;MadCap:${safeName}/&gt;</code> placeholder. Flare's compiler will replace this with generated content at build time.</span></div></div>`;
+}
+
+function humanizeProxyName(proxyName: string): string {
+  // Drop the trailing "Proxy" suffix (case-insensitive).
+  const stripped = proxyName.replace(/proxy$/i, "");
+  if (stripped.length === 0) {
+    return "Proxy";
+  }
+  // Insert spaces at lowercase→uppercase boundaries so camelCase becomes
+  // human-readable: `miniToc` → `mini Toc`. Then capitalize each word.
+  const spaced = stripped.replace(/([a-z])([A-Z])/g, "$1 $2");
+  return spaced
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 async function replaceSnippets(
