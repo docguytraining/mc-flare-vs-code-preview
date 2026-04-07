@@ -3,11 +3,20 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectContext, TransformResult } from "../core/types";
+import { ConditionExpression, alwaysRender } from "./conditionExpression";
+import { applyConditions } from "./conditionRenderer";
 
 export interface TransformContext {
   variables: Map<string, string>;
   projectContext: FlareProjectContext | undefined;
   currentDocument: vscode.Uri;
+  conditionExpression?: ConditionExpression;
+  showConditionBadges?: boolean;
+  collectedConditions?: {
+    elementConditionCounts: Map<string, number>;
+    snippetConditionCounts: Map<string, number>;
+    hiddenCount: number;
+  };
 }
 
 export interface HandlerContext {
@@ -45,8 +54,29 @@ const variableTransformHandler: TransformHandler = {
 
 const conditionalTransformHandler: TransformHandler = {
   id: "conditionals",
-  run(htmlContent, _transformContext, handlerContext) {
-    return replaceConditionalBlocks(htmlContent, handlerContext.warnings);
+  run(htmlContent, transformContext, handlerContext) {
+    // First, apply per-element conditions against the active target
+    // expression. Hidden elements are stripped here so the legacy
+    // <MadCap:conditionalBlock> handler that runs immediately afterward
+    // doesn't need to know about it.
+    const expression = transformContext.conditionExpression ?? alwaysRender();
+    const result = applyConditions(htmlContent, {
+      expression,
+      showBadges: transformContext.showConditionBadges ?? false
+    });
+    if (transformContext.collectedConditions) {
+      transformContext.collectedConditions.elementConditionCounts =
+        result.elementConditionCounts;
+      transformContext.collectedConditions.snippetConditionCounts =
+        result.snippetConditionCounts;
+      transformContext.collectedConditions.hiddenCount = result.hiddenCount;
+    }
+    if (result.hiddenCount > 0) {
+      handlerContext.warnings.push(
+        `Hidden ${result.hiddenCount} element(s) by active target conditions.`
+      );
+    }
+    return replaceConditionalBlocks(result.html, handlerContext.warnings);
   }
 };
 

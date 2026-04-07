@@ -5,6 +5,13 @@ import { resolveStylesheets } from "./flare/stylesheetResolver";
 import { resolveVariables } from "./flare/variableResolver";
 import { transformMadcapContent } from "./flare/madcapTransformPipeline";
 import { TopicIndex } from "./flare/topicIndex";
+import { ConditionTagIndex } from "./flare/conditionTagIndex";
+import { discoverTargets, SHOW_EVERYTHING_TARGET_ID, TargetEntry } from "./flare/targetIndex";
+import { parseTargetExpression } from "./flare/conditionExpression";
+import { ConditionDiagnosticProvider } from "./diagnostics/conditionDiagnosticProvider";
+import { ConditionCompletionProvider } from "./language/conditionCompletionProvider";
+import { registerRenameReferencesHandler } from "./commands/renameReferencesHandler";
+import { registerValidateAllTopicsCommand } from "./commands/validateAllTopicsCommand";
 import { disposeLogger, logError, logInfo, showLogChannel } from "./core/logger";
 import { VariableInlayHintsProvider } from "./language/variableInlayHintsProvider";
 import { VariableCompletionProvider } from "./language/variableCompletionProvider";
@@ -16,7 +23,9 @@ import { registerInsertXrefCommand } from "./commands/insertXrefCommand";
 import {
   DiagnosticEntry,
   FlareProjectContext,
+  PreviewConditionInventory,
   PreviewDiagnostics,
+  PreviewTargetInfo,
   StylesheetBundle,
   TransformResult,
   VariableResolutionResult
@@ -34,11 +43,18 @@ export function activate(context: vscode.ExtensionContext): void {
   logInfo("MadCap Flare Preview extension activated.");
   const projectResolver = new FlareProjectResolver();
   const topicIndex = new TopicIndex();
+  const conditionTagIndex = new ConditionTagIndex();
   const dismissalStore = new DismissalStore();
   const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
   const linkDiagnostics = vscode.languages.createDiagnosticCollection("flare-links");
+  const conditionDiagnostics = vscode.languages.createDiagnosticCollection("flare-conditions");
   const suggestionEngine = new VariableSuggestionEngine(suggestionDiagnostics, projectResolver, dismissalStore);
   const linkValidator = new LinkValidator(linkDiagnostics, projectResolver);
+  const conditionDiagnosticProvider = new ConditionDiagnosticProvider(
+    conditionDiagnostics,
+    projectResolver,
+    conditionTagIndex
+  );
   const authoringTimers = new Map<string, NodeJS.Timeout>();
 
   const scheduleAuthoringValidation = (document: vscode.TextDocument): void => {
@@ -54,6 +70,9 @@ export function activate(context: vscode.ExtensionContext): void {
       authoringTimers.delete(key);
       void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
       void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+      void conditionDiagnosticProvider
+        .validate(document)
+        .catch((error) => logError("Condition diagnostic provider failed", error));
     }, AUTHORING_DEBOUNCE_MS);
     authoringTimers.set(key, timer);
   };
@@ -64,6 +83,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
     void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+    void conditionDiagnosticProvider
+      .validate(document)
+      .catch((error) => logError("Condition diagnostic provider failed", error));
   };
 
   for (const document of vscode.workspace.textDocuments) {
@@ -78,6 +100,9 @@ export function activate(context: vscode.ExtensionContext): void {
     stylesheetBundle: StylesheetBundle;
     transformResult: TransformResult;
     diagnostics: PreviewDiagnostics;
+    conditions: PreviewConditionInventory;
+    availableTargets: PreviewTargetInfo[];
+    activeTargetId: string;
   }> => {
     const entries: DiagnosticEntry[] = [];
     const htmlContent = document.getText();
@@ -157,6 +182,41 @@ export function activate(context: vscode.ExtensionContext): void {
       });
     }
 
+    // Resolve the active target's condition expression so the transform
+    // pipeline can hide elements that the target excludes. The list of
+    // available targets is also returned to the preview panel so it can
+    // render its picker.
+    let availableTargets: TargetEntry[] = [];
+    let activeTargetId = SHOW_EVERYTHING_TARGET_ID;
+    if (projectContext) {
+      try {
+        availableTargets = await discoverTargets(projectContext);
+      } catch (error) {
+        logError("Target discovery failed", error);
+      }
+      try {
+        const persisted = await dismissalStore.getPreviewTarget(projectContext);
+        if (persisted && availableTargets.some((target) => target.id === persisted)) {
+          activeTargetId = persisted;
+        }
+      } catch (error) {
+        logError("Reading persisted preview target failed", error);
+      }
+    }
+    const activeTarget =
+      availableTargets.find((target) => target.id === activeTargetId) ??
+      availableTargets[0];
+    const conditionExpression = parseTargetExpression(activeTarget?.expression);
+    const showConditionBadges = vscode.workspace
+      .getConfiguration("flarePreview")
+      .get<boolean>("showConditionBadges", false);
+
+    const collectedConditions = {
+      elementConditionCounts: new Map<string, number>(),
+      snippetConditionCounts: new Map<string, number>(),
+      hiddenCount: 0
+    };
+
     let transformResult: TransformResult = {
       html: escapeHtmlContent(htmlContent),
       warnings: []
@@ -165,7 +225,10 @@ export function activate(context: vscode.ExtensionContext): void {
       transformResult = await transformMadcapContent(htmlContent, {
         variables: variableResult.variables,
         projectContext,
-        currentDocument: document.uri
+        currentDocument: document.uri,
+        conditionExpression,
+        showConditionBadges,
+        collectedConditions
       });
     } catch (error) {
       logError("MadCap transform pipeline failed", error);
@@ -186,7 +249,14 @@ export function activate(context: vscode.ExtensionContext): void {
       variableResult,
       stylesheetBundle,
       transformResult,
-      diagnostics: { entries }
+      diagnostics: { entries },
+      conditions: collectedConditions,
+      availableTargets: availableTargets.map((target) => ({
+        id: target.id,
+        displayName: target.displayName,
+        expression: target.expression
+      })),
+      activeTargetId: activeTarget?.id ?? SHOW_EVERYTHING_TARGET_ID
     };
   };
 
@@ -209,10 +279,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  const dependencyWatcher = vscode.workspace.createFileSystemWatcher("**/*.{flprj,flvar,css}");
+  const dependencyWatcher = vscode.workspace.createFileSystemWatcher("**/*.{flprj,flvar,css,flcts,fltar}");
 
   const onDependencyChanged = (uri: vscode.Uri): void => {
     projectResolver.invalidateForPath(uri.fsPath);
+    conditionTagIndex.invalidateForPath(uri.fsPath);
     FlarePreviewPanel.refreshCurrent(buildPreviewData);
   };
 
@@ -225,8 +296,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const lowerPath = document.uri.fsPath.toLowerCase();
-    if (lowerPath.endsWith(".flprj") || lowerPath.endsWith(".flvar") || lowerPath.endsWith(".css")) {
+    if (
+      lowerPath.endsWith(".flprj") ||
+      lowerPath.endsWith(".flvar") ||
+      lowerPath.endsWith(".css") ||
+      lowerPath.endsWith(".flcts") ||
+      lowerPath.endsWith(".fltar")
+    ) {
       projectResolver.invalidateForPath(document.uri.fsPath);
+      conditionTagIndex.invalidateForPath(document.uri.fsPath);
       FlarePreviewPanel.refreshCurrent(buildPreviewData);
       return;
     }
@@ -378,6 +456,67 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const insertXrefRegistration = registerInsertXrefCommand(projectResolver, topicIndex);
+  const validateAllTopicsRegistration = registerValidateAllTopicsCommand(
+    projectResolver,
+    linkValidator
+  );
+  const renameReferencesRegistration = registerRenameReferencesHandler(projectResolver);
+
+  const conditionCompletionRegistration = vscode.languages.registerCompletionItemProvider(
+    HTML_DOCUMENT_SELECTOR,
+    new ConditionCompletionProvider(projectResolver, conditionTagIndex),
+    '"',
+    "'",
+    ","
+  );
+
+  const pickPreviewTargetRegistration = vscode.commands.registerCommand(
+    "flare.pickPreviewTarget",
+    async (resource?: vscode.Uri) => {
+      const document =
+        (await resolveDocument(resource).catch(() => undefined)) ??
+        vscode.window.activeTextEditor?.document;
+      if (!document) {
+        vscode.window.showInformationMessage(
+          "Open a Flare topic before picking a preview target."
+        );
+        return;
+      }
+      const projectContext = await projectResolver
+        .resolveForFile(document.uri)
+        .catch(() => undefined);
+      if (!projectContext) {
+        vscode.window.showWarningMessage(
+          "Flare: cannot pick a target because no .flprj project was found above this topic."
+        );
+        return;
+      }
+      const targets = await discoverTargets(projectContext);
+      const items = targets.map((target) => ({
+        label: target.displayName,
+        description:
+          target.id === SHOW_EVERYTHING_TARGET_ID
+            ? "Render every conditional element"
+            : target.expression
+              ? target.expression
+              : "(no condition expression)",
+        targetId: target.id
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
+        title: "Flare Preview Target",
+        placeHolder: "Pick the build target to preview"
+      });
+      if (!picked) {
+        return;
+      }
+      try {
+        await dismissalStore.setPreviewTarget(projectContext, picked.targetId);
+      } catch (error) {
+        logError("Failed to persist preview target", error);
+      }
+      FlarePreviewPanel.refreshCurrent(buildPreviewData);
+    }
+  );
 
   const dismissTopicSuggestionRegistration = vscode.commands.registerCommand(
     "flare.dismissVariableSuggestionInTopic",
@@ -469,13 +608,18 @@ export function activate(context: vscode.ExtensionContext): void {
     inlayHintsRegistration,
     variableCompletionRegistration,
     xrefCompletionRegistration,
+    conditionCompletionRegistration,
     codeActionRegistration,
     insertXrefRegistration,
+    validateAllTopicsRegistration,
+    renameReferencesRegistration,
+    pickPreviewTargetRegistration,
     dismissTopicSuggestionRegistration,
     dismissSuggestionRegistration,
     onDidRename,
     suggestionDiagnostics,
     linkDiagnostics,
+    conditionDiagnostics,
     {
       dispose: () => {
         for (const timer of authoringTimers.values()) {

@@ -232,3 +232,79 @@ body.flare-preview-body {
   opacity: 0.6;
   font-size: 0.85em;
 }
+
+/* Phase 9 — target picker and conditional metadata. */
+
+.flare-target-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.9em;
+}
+
+.flare-target-label {
+  opacity: 0.85;
+}
+
+button.flare-target-picker {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.flare-target-picker:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.flare-preview-conditions h2 {
+  margin-bottom: 0.4rem;
+}
+
+.condition-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.condition-column h3 {
+  margin: 0 0 0.3rem 0;
+  font-size: 1em;
+  opacity: 0.85;
+}
+
+.condition-column ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.condition-count {
+  opacity: 0.65;
+  font-size: 0.85em;
+}
+
+.condition-hidden-note {
+  opacity: 0.85;
+  font-style: italic;
+  margin: 0.2rem 0 0.6rem 0;
+}
+
+.madcap-condition-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 0 0 4px;
+  font-size: 0.7em;
+  border-radius: 999px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  opacity: 0.55;
+  vertical-align: middle;
+}
+
+.madcap-condition-badge:hover {
+  opacity: 1;
+}

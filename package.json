@@ -66,6 +66,21 @@
         "title": "Dismiss Variable Suggestion (Topic)",
         "category": "Flare Toolkit",
         "enablement": "false"
+      },
+      {
+        "command": "flare.pickPreviewTarget",
+        "title": "Pick Preview Target",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.validateAllTopics",
+        "title": "Validate All Topics",
+        "category": "Flare Toolkit"
+      },
+      {
+        "command": "flare.findStaleReferences",
+        "title": "Find Stale References",
+        "category": "Flare Toolkit"
       }
     ],
     "menus": {
@@ -133,6 +148,11 @@
           "type": "boolean",
           "default": true,
           "description": "Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics."
+        },
+        "flarePreview.showConditionBadges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a small pill badge inside every conditional element in the preview, listing the MadCap:conditions tags that gate it."
         }
       }
     }
