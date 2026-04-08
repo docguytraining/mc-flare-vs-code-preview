@@ -249,7 +249,7 @@ export function activate(context: vscode.ExtensionContext): void {
       availableTargets[0];
     const conditionExpression = parseTargetExpression(activeTarget?.expression);
     const showConditionBadges = vscode.workspace
-      .getConfiguration("flarePreview")
+      .getConfiguration("flareToolkit")
       .get<boolean>("showConditionBadges", false);
 
     const collectedConditions = {
@@ -345,7 +345,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const onDidSave = vscode.workspace.onDidSaveTextDocument((document) => {
     const autoRefresh = vscode.workspace
-      .getConfiguration("flarePreview")
+      .getConfiguration("flareToolkit")
       .get<boolean>("autoRefreshOnSave", true);
     if (!autoRefresh) {
       return;
@@ -398,10 +398,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration((event) => {
     if (
-      event.affectsConfiguration("flarePreview.suggestVariableReplacements") ||
-      event.affectsConfiguration("flarePreview.variableReplacementMinLength") ||
-      event.affectsConfiguration("flarePreview.suggestionIgnoreVariables") ||
-      event.affectsConfiguration("flarePreview.validateLinks")
+      event.affectsConfiguration("flareToolkit.suggestVariableReplacements") ||
+      event.affectsConfiguration("flareToolkit.variableReplacementMinLength") ||
+      event.affectsConfiguration("flareToolkit.suggestionIgnoreVariables") ||
+      event.affectsConfiguration("flareToolkit.validateLinks")
     ) {
       for (const document of vscode.workspace.textDocuments) {
         runAuthoringValidationImmediately(document);
@@ -804,7 +804,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof variableName !== "string" || variableName.length === 0) {
         return;
       }
-      const config = vscode.workspace.getConfiguration("flarePreview");
+      const config = vscode.workspace.getConfiguration("flareToolkit");
       const current = config.get<string[]>("suggestionIgnoreVariables", []) ?? [];
       if (current.includes(variableName)) {
         return;

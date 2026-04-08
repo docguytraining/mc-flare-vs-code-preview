@@ -30,7 +30,7 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Value-prefix completion** — start typing prose that matches the beginning of a variable's value (e.g. `Trust Pro` for `Trust Protection Foundation`) and the completion popup offers to replace the typed text with the canonical `<MadCap:variable name="…" />` reference. Multi-word matching with longest-match wins, so mid-paragraph typing works the same as start-of-paragraph.
 - **Literal-to-variable suggestions** — case-sensitive scan finds prose literals that exactly match a known variable value. Each match becomes an Information diagnostic with three quick-fix actions: replace with the variable, dismiss for this topic, dismiss project-wide. Skips text inside existing MadCap tags, attributes, and comments.
 - **Per-topic dismissal sidecar** — "Never suggest 'X' in this topic" writes to `<projectRoot>/.vscode/flare-preview.json` instead of touching the topic file. Source-controllable, reviewable, automatically migrated when you rename a topic inside VS Code, and stale entries (pointing at deleted topics) are detected on activation and surfaced as a warning notification.
-- **Project-wide dismissal** — "Never suggest 'X' anywhere in this project" writes to `flarePreview.suggestionIgnoreVariables` in workspace settings.
+- **Project-wide dismissal** — "Never suggest 'X' anywhere in this project" writes to `flareToolkit.suggestionIgnoreVariables` in workspace settings.
 - **Insert Cross-Reference command** — opens a project-wide quick pick of every topic indexed by its first `<h1>`, then a follow-up picker for the bookmark to link to. Inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected for editing.
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
 - **`[[` topic picker** — anywhere in flowing prose, type `[[` and IntelliSense opens a project-wide list of every topic. Pick one and the `[[` is replaced with a complete `<MadCap:xref>` tag pointing at the chosen topic, with the heading prefilled as link text.
@@ -54,7 +54,7 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Condition tag set index** — every `.flcts` file under `Project/ConditionTagSets` is parsed and indexed by qualified `<setName>.<tagName>`. Color and comment metadata are surfaced in completion documentation.
 - **Target-aware preview** — the transform pipeline parses `MadCap:conditions=` on every element and hides anything the active target's expression excludes. Supports `include[A or B]`, `exclude[A and B]`, nested grouping, and `AND` between top-level clauses.
 - **Target picker** — a "Target" label and "Change…" button appear in the preview header. Picking a target persists per project root in `.vscode/flare-preview.json`. The list always includes a synthetic *Show everything* (default) and *(Project default)* entry.
-- **Condition badges** *(opt-in)* — turn on `flarePreview.showConditionBadges` to inject a small `madcap-condition-badge` pill inside every conditional element so you can see at a glance which tag gates each block.
+- **Condition badges** *(opt-in)* — turn on `flareToolkit.showConditionBadges` to inject a small `madcap-condition-badge` pill inside every conditional element so you can see at a glance which tag gates each block.
 - **Condition autocomplete** — typing inside `MadCap:conditions="…"` or `MadCap:conditionTagExpression="…"` opens a completion list of every qualified condition tag in the project. Each entry shows a small color swatch matching the tag's `BackgroundColor`, and accepting one re-triggers IntelliSense so you can chain a comma and pick the next tag without retyping anything.
 - **Condition attribute-name completion** — inside any opening tag, typing a space surfaces `MadCap:conditions=""` and `MadCap:conditionTagExpression=""` as completion items. Accepting one drops the cursor between the quotes and immediately fires the value picker above.
 - **"Add condition…" code action** — place the cursor anywhere inside an opening tag, click the lightbulb, choose **Add condition…**, and a multi-select quick pick of every project condition tag opens. Pre-checks any tags already on the element; on accept, the toolkit inserts (or extends) `MadCap:conditions="…"` on that tag in a single edit.
@@ -95,15 +95,15 @@ The `Live Preview` keybinding is a **chord**: press and hold `Cmd` (or `Ctrl` on
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `flarePreview.autoRefreshOnSave` | `boolean` | `true` | Refresh the preview after saving an HTML topic or a dependency file (`.flprj`, `.flvar`, `.css`). |
-| `flarePreview.typingDebounceMs` | `number` | `800` | Debounce delay for typing-driven preview refresh. Minimum 300 ms. |
-| `flarePreview.inlayHints.variables` | `boolean` | `true` | Show the resolved value of each Flare variable reference as an inline hint. |
-| `flarePreview.suggestVariableReplacements` | `boolean` | `true` | Suggest replacing literal text that matches a Flare variable value with a `<MadCap:variable>` reference. |
-| `flarePreview.variableReplacementMinLength` | `number` | `4` | Minimum length of a variable value before it is used for literal-match suggestions. |
-| `flarePreview.suggestionIgnoreVariables` | `string[]` | `[]` | Project-wide ignore list for variables that should never produce literal-match suggestions. Per-topic dismissals live in `.vscode/flare-preview.json` instead. |
-| `flarePreview.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
-| `flarePreview.showConditionBadges` | `boolean` | `false` | Show a small pill badge inside every conditional element in the preview, listing the `MadCap:conditions` tags that gate it. |
-| `flarePreview.showConditionGutter` | `boolean` | `true` | Show a colored square in the editor gutter on every line that contains a `MadCap:conditions` or `MadCap:conditionTagExpression` attribute. The square's color comes from the `BackgroundColor` of the matching `.flcts` entry. |
+| `flareToolkit.autoRefreshOnSave` | `boolean` | `true` | Refresh the preview after saving an HTML topic or a dependency file (`.flprj`, `.flvar`, `.css`). |
+| `flareToolkit.typingDebounceMs` | `number` | `800` | Debounce delay for typing-driven preview refresh. Minimum 300 ms. |
+| `flareToolkit.inlayHints.variables` | `boolean` | `true` | Show the resolved value of each Flare variable reference as an inline hint. |
+| `flareToolkit.suggestVariableReplacements` | `boolean` | `true` | Suggest replacing literal text that matches a Flare variable value with a `<MadCap:variable>` reference. |
+| `flareToolkit.variableReplacementMinLength` | `number` | `4` | Minimum length of a variable value before it is used for literal-match suggestions. |
+| `flareToolkit.suggestionIgnoreVariables` | `string[]` | `[]` | Project-wide ignore list for variables that should never produce literal-match suggestions. Per-topic dismissals live in `.vscode/flare-preview.json` instead. |
+| `flareToolkit.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
+| `flareToolkit.showConditionBadges` | `boolean` | `false` | Show a small pill badge inside every conditional element in the preview, listing the `MadCap:conditions` tags that gate it. |
+| `flareToolkit.showConditionGutter` | `boolean` | `true` | Show a colored square in the editor gutter on every line that contains a `MadCap:conditions` or `MadCap:conditionTagExpression` attribute. The square's color comes from the `BackgroundColor` of the matching `.flcts` entry. |
 
 ## Supported MadCap tags
 

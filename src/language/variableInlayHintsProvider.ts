@@ -21,7 +21,7 @@ export class VariableInlayHintsProvider implements vscode.InlayHintsProvider {
     }
 
     const enabled = vscode.workspace
-      .getConfiguration("flarePreview")
+      .getConfiguration("flareToolkit")
       .get<boolean>("inlayHints.variables", true);
     if (!enabled) {
       return [];

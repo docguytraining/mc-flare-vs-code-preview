@@ -132,7 +132,7 @@ suite("VariableSuggestionEngine - sidecar dismissals + case sensitivity", () => 
     );
 
     const collection = vscode.languages.createDiagnosticCollection("flare-projectwide-test");
-    const config = vscode.workspace.getConfiguration("flarePreview");
+    const config = vscode.workspace.getConfiguration("flareToolkit");
     const originalIgnore = config.get<string[]>("suggestionIgnoreVariables", []) ?? [];
     try {
       const engine = new VariableSuggestionEngine(

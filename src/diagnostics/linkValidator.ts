@@ -57,7 +57,7 @@ export class LinkValidator {
     }
 
     const enabled = vscode.workspace
-      .getConfiguration("flarePreview")
+      .getConfiguration("flareToolkit")
       .get<boolean>("validateLinks", true);
     if (!enabled) {
       this.diagnostics.delete(document.uri);

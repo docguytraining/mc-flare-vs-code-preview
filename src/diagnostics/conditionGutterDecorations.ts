@@ -53,7 +53,7 @@ export class ConditionGutterDecorations implements vscode.Disposable {
         }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("flarePreview.showConditionGutter")) {
+        if (event.affectsConfiguration("flareToolkit.showConditionGutter")) {
           this.enabled = readEnabledSetting();
           this.refreshAll();
         }
@@ -270,6 +270,6 @@ export function svgGutterDataUri(color: string): string {
 
 function readEnabledSetting(): boolean {
   return vscode.workspace
-    .getConfiguration("flarePreview")
+    .getConfiguration("flareToolkit")
     .get<boolean>("showConditionGutter", true);
 }

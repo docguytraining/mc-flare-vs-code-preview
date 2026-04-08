@@ -22,7 +22,7 @@ const MAX_PREFIX_WORDS = 8;
  *     the typed prefix with `<MadCap:variable name="…" />`. Acceptance does
  *     a single edit, so authors can stay in flow.
  *
- * Variables on the workspace `flarePreview.suggestionIgnoreVariables` list
+ * Variables on the workspace `flareToolkit.suggestionIgnoreVariables` list
  * are excluded from value-prefix completions.
  */
 export class VariableCompletionProvider implements vscode.CompletionItemProvider {
@@ -302,7 +302,7 @@ function extractPrefixCandidates(
 }
 
 function readProjectIgnoreList(): Set<string> {
-  const config = vscode.workspace.getConfiguration("flarePreview");
+  const config = vscode.workspace.getConfiguration("flareToolkit");
   const list = config.get<string[]>("suggestionIgnoreVariables", []) ?? [];
   return new Set(list.map((entry) => entry.trim()).filter((entry) => entry.length > 0));
 }

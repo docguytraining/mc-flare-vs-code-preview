@@ -18,8 +18,8 @@ interface SuggestionMatch {
  * variable and surfaces each match as an Information diagnostic with a code
  * action that rewrites the literal to a `<MadCap:variable>` reference.
  *
- * Controlled by `flarePreview.suggestVariableReplacements`. Literals shorter
- * than `flarePreview.variableReplacementMinLength` are ignored to cut down on
+ * Controlled by `flareToolkit.suggestVariableReplacements`. Literals shorter
+ * than `flareToolkit.variableReplacementMinLength` are ignored to cut down on
  * noise for short words.
  */
 export class VariableSuggestionEngine implements vscode.CodeActionProvider, vscode.Disposable {
@@ -69,7 +69,7 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider, vsco
       return;
     }
 
-    const config = vscode.workspace.getConfiguration("flarePreview");
+    const config = vscode.workspace.getConfiguration("flareToolkit");
     const enabled = config.get<boolean>("suggestVariableReplacements", true);
     if (!enabled) {
       this.diagnostics.delete(document.uri);

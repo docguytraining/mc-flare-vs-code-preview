@@ -2,7 +2,7 @@
   "name": "mc-flare-vs-code-preview",
   "displayName": "Toolkit for MadCap Flare",
   "description": "Unofficial VS Code toolkit for editing existing MadCap Flare™ topics. Requires a Flare license. Not affiliated with MadCap Software, Inc.",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "publisher": "DocGuyTraining",
   "author": {
     "name": "DocGuy Training"
@@ -175,34 +175,34 @@
     "configuration": {
       "title": "Toolkit for MadCap Flare",
       "properties": {
-        "flarePreview.autoRefreshOnSave": {
+        "flareToolkit.autoRefreshOnSave": {
           "type": "boolean",
           "default": true,
           "description": "Refresh the preview after saving an HTML topic."
         },
-        "flarePreview.typingDebounceMs": {
+        "flareToolkit.typingDebounceMs": {
           "type": "number",
           "default": 800,
           "minimum": 300,
           "description": "Debounce delay used for typing-driven preview refresh."
         },
-        "flarePreview.inlayHints.variables": {
+        "flareToolkit.inlayHints.variables": {
           "type": "boolean",
           "default": true,
           "description": "Show the resolved value of each Flare variable reference as an inline hint in the editor."
         },
-        "flarePreview.suggestVariableReplacements": {
+        "flareToolkit.suggestVariableReplacements": {
           "type": "boolean",
           "default": true,
           "description": "Suggest replacing literal text that matches a Flare variable value with a <MadCap:variable> reference."
         },
-        "flarePreview.variableReplacementMinLength": {
+        "flareToolkit.variableReplacementMinLength": {
           "type": "number",
           "default": 4,
           "minimum": 2,
           "description": "Minimum length of a variable value before it is used for literal-match suggestions. Lower values produce more noise on short words."
         },
-        "flarePreview.suggestionIgnoreVariables": {
+        "flareToolkit.suggestionIgnoreVariables": {
           "type": "array",
           "items": {
             "type": "string"
@@ -210,17 +210,17 @@
           "default": [],
           "description": "Project-wide list of Flare variable names that should never produce literal-match suggestions or value-prefix completions. Add either the qualified name (e.g. 'UI.user') or the bare name. For per-topic dismissals, use the 'Never suggest X in this topic' code action — it writes to .vscode/flare-preview.json without modifying the topic file."
         },
-        "flarePreview.validateLinks": {
+        "flareToolkit.validateLinks": {
           "type": "boolean",
           "default": true,
           "description": "Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics."
         },
-        "flarePreview.showConditionBadges": {
+        "flareToolkit.showConditionBadges": {
           "type": "boolean",
           "default": false,
           "description": "Show a small pill badge inside every conditional element in the preview, listing the MadCap:conditions tags that gate it."
         },
-        "flarePreview.showConditionGutter": {
+        "flareToolkit.showConditionGutter": {
           "type": "boolean",
           "default": true,
           "description": "Show a colored square in the editor gutter on every line that contains a MadCap:conditions or MadCap:conditionTagExpression attribute. The color is taken from the matching .flcts entry's BackgroundColor."

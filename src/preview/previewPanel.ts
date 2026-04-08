@@ -489,7 +489,7 @@ function buildLocalResourceRoots(
 
 function readTypingDebounceMs(): number {
   const configured = vscode.workspace
-    .getConfiguration("flarePreview")
+    .getConfiguration("flareToolkit")
     .get<number>("typingDebounceMs", DEFAULT_DEBOUNCE_MS);
   if (typeof configured !== "number" || Number.isNaN(configured)) {
     return DEFAULT_DEBOUNCE_MS;

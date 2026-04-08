@@ -14,7 +14,7 @@ const COMMAND = "flare.replaceSelectionWithVariable";
  *
  * Distinct from the existing `VariableSuggestionEngine` (which surfaces
  * literal-matches as diagnostics + quick fixes, gated on
- * `flarePreview.suggestVariableReplacements` and the dismissal lists).
+ * `flareToolkit.suggestVariableReplacements` and the dismissal lists).
  * This provider is manual-only: the author has to select the text and
  * invoke the lightbulb, so it bypasses both gates and the minimum-length
  * heuristic. Useful for short literals and for authors who keep the

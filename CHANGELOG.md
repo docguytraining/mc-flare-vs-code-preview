@@ -2,6 +2,11 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [0.2.0] — 2026-04-07
+
+### Changed
+- **Breaking — settings renamed from `flarePreview.*` to `flareToolkit.*`.** The settings UI grouped all options under a "Flare Preview" subheading derived from the property-key prefix, which contradicted the toolkit's display name. Every configuration key has been renamed to use a `flareToolkit.` prefix; the subheading now reads "Flare Toolkit". Anyone who customized the old keys will need to re-set them under the new names — VS Code does not auto-migrate setting IDs.
+
 ## [0.1.4] — 2026-04-07
 
 A consolidated follow-up release covering everything that landed since 0.1.2: the seven editor papercut fixes from PR #4 plus a `MadCap:dropDown`-in-snippet fix and a test bug discovered while preparing the release.
