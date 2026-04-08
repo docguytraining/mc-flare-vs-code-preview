@@ -2,7 +2,7 @@
   "name": "mc-flare-vs-code-preview",
   "displayName": "Toolkit for MadCap Flare",
   "description": "Unofficial VS Code toolkit for editing existing MadCap Flare™ topics. Requires a Flare license. Not affiliated with MadCap Software, Inc.",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "publisher": "DocGuyTraining",
   "author": {
     "name": "DocGuy Training"

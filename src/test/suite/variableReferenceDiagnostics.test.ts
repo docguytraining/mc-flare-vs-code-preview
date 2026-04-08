@@ -155,11 +155,20 @@ suite("VariableReferenceDiagnostics — refresh", () => {
       await provider.refresh(document);
       assert.strictEqual((collection.get(document.uri) ?? []).length, 1);
 
-      // Rewrite the file with no MadCap:variable references at all.
-      await fs.writeFile(topicUri.fsPath, "<html><body><p>plain</p></body></html>", "utf8");
-      const reopened = await vscode.workspace.openTextDocument(topicUri);
-      await provider.refresh(reopened);
-      assert.strictEqual((collection.get(reopened.uri) ?? []).length, 0);
+      // Rewrite the document content via WorkspaceEdit so the in-memory
+      // TextDocument is updated. Writing to disk with fs.writeFile and then
+      // re-calling openTextDocument is NOT enough — VS Code returns the
+      // cached document and provider.refresh would see the stale text.
+      const edit = new vscode.WorkspaceEdit();
+      const fullRange = new vscode.Range(
+        document.positionAt(0),
+        document.positionAt(document.getText().length)
+      );
+      edit.replace(topicUri, fullRange, "<html><body><p>plain</p></body></html>");
+      const applied = await vscode.workspace.applyEdit(edit);
+      assert.ok(applied, "WorkspaceEdit must apply for the test to be meaningful");
+      await provider.refresh(document);
+      assert.strictEqual((collection.get(document.uri) ?? []).length, 0);
     } finally {
       collection.dispose();
     }
