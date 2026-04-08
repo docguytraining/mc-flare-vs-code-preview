@@ -156,7 +156,7 @@ suite("VariableSuggestionEngine - sidecar dismissals + case sensitivity", () => 
       await config.update(
         "suggestionIgnoreVariables",
         ["Sample.Vendor"],
-        vscode.ConfigurationTarget.Workspace
+        vscode.ConfigurationTarget.Global
       );
       try {
         await engine.refresh(document);
@@ -170,7 +170,7 @@ suite("VariableSuggestionEngine - sidecar dismissals + case sensitivity", () => 
         await config.update(
           "suggestionIgnoreVariables",
           originalIgnore,
-          vscode.ConfigurationTarget.Workspace
+          vscode.ConfigurationTarget.Global
         );
       }
     } finally {

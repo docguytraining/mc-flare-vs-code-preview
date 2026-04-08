@@ -49,7 +49,7 @@ suite("Rename Condition Tag — scanner", () => {
     assert.ok((byFile.get("Web.fltar") ?? 0) >= 1, "expected match in Web.fltar");
     assert.ok((byFile.get("Sample.flprj") ?? 0) >= 1, "expected match in Sample.flprj");
     assert.strictEqual(byFile.get("Default.flcts") ?? 0, 1, "expected one Name= match in Default.flcts");
-    assert.strictEqual(byFile.get("Audience.flcts") ?? 0, undefined, "Audience.flcts should be untouched");
+    assert.strictEqual(byFile.get("Audience.flcts"), undefined, "Audience.flcts should be untouched");
   });
 
   test("does not match BetaTesting (whole-word boundary)", async () => {

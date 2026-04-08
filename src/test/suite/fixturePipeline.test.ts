@@ -65,7 +65,11 @@ suite("Sample Flare project pipeline", () => {
     assert.ok(result.html.includes("<details"));
     assert.ok(result.html.includes("More details"));
     assert.ok(result.html.includes("Hello from the shared snippet"));
-    assert.ok(result.html.includes("madcap-unsupported-tag"));
-    assert.ok(result.warnings.some((warning) => warning.includes("breadcrumbsProxy")));
+    // breadcrumbsProxy is rendered as a proxy placeholder by the pipeline's
+    // proxyPlaceholderTransformHandler — it's a known proxy element, not an
+    // unsupported tag — so the placeholder marker is the right thing to look
+    // for here.
+    assert.ok(result.html.includes("madcap-proxy-placeholder"));
+    assert.ok(result.html.includes("breadcrumbsProxy"));
   });
 });

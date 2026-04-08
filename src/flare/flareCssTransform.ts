@@ -132,8 +132,12 @@ function parseAutonumFormat(value: string): AutonumParseResult {
   //   {chapnum}, {n+}, {n}, {Gn+}, {A+}, {a+}, {A}, {n=1}, { =0}
   working = working.replace(/\{\s*[A-Za-z]*[+=]?\s*[0-9]*\s*\}/g, "");
 
-  // Collapse runs of whitespace introduced by the substitutions.
-  working = working.replace(/[ \t]{2,}/g, " ");
+  // Collapse 3-or-more space/tab runs introduced by the substitutions back to
+  // a single space. We deliberately leave 2-space runs alone: Flare authors
+  // commonly write labels like `"{b}NOTE  {/b}"` with two trailing spaces to
+  // visually separate the label from the body text in the rendered :before,
+  // and that intent should survive the transform.
+  working = working.replace(/[ \t]{3,}/g, " ");
 
   return { content: working, isBold, isItalic };
 }

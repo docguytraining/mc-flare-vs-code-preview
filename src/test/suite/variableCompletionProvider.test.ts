@@ -13,6 +13,14 @@ interface CompletionInput {
   cursorMarker?: string;
 }
 
+// Each test uses its own scratch file because vscode.workspace.openTextDocument
+// caches by URI — re-opening the same path returns the cached document with
+// the previous test's content, even after fs.writeFile updates the bytes on
+// disk. The scratchPaths set tracks every file we created so the suite-level
+// teardown can delete them all.
+let scratchCounter = 0;
+const scratchPaths = new Set<string>();
+
 /**
  * Writes a scratch topic under the sample project containing the given HTML
  * with `|` marking the desired cursor position, opens it, runs the provider,
@@ -29,12 +37,14 @@ async function runCompletion(input: CompletionInput): Promise<{
     throw new Error("test setup: cursor marker not found in html");
   }
   const source = input.html.replace(marker, "");
+  scratchCounter += 1;
   const scratchPath = path.join(
     FIXTURE_ROOT,
     "Content",
     "Topics",
-    "__scratch-completion.htm"
+    `__scratch-completion-${scratchCounter}.htm`
   );
+  scratchPaths.add(scratchPath);
   await fs.writeFile(scratchPath, source, "utf8");
 
   const document = await vscode.workspace.openTextDocument(vscode.Uri.file(scratchPath));
@@ -51,13 +61,10 @@ async function runCompletion(input: CompletionInput): Promise<{
 }
 
 async function cleanup(): Promise<void> {
-  const scratchPath = path.join(
-    FIXTURE_ROOT,
-    "Content",
-    "Topics",
-    "__scratch-completion.htm"
-  );
-  await fs.unlink(scratchPath).catch(() => undefined);
+  for (const scratchPath of scratchPaths) {
+    await fs.unlink(scratchPath).catch(() => undefined);
+  }
+  scratchPaths.clear();
 }
 
 function labelOf(item: vscode.CompletionItem): string {

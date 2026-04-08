@@ -50,6 +50,14 @@ export function parseTargetExpression(input: string | undefined | null): Conditi
     return ALWAYS_RENDER;
   }
 
+  // Reject obviously malformed expressions before trying to compile. Mismatched
+  // square or round brackets mean we'd otherwise fall through to the bare-tag
+  // branch and silently treat `include[unclosed` as a tag name. Falling back
+  // to always-render is much safer than hiding content based on garbage.
+  if (!hasBalancedBrackets(trimmed)) {
+    return ALWAYS_RENDER;
+  }
+
   try {
     const clauses = splitTopLevel(trimmed, /\bAND\b/i);
     const compiled = clauses.map((clause) => compileClause(clause.trim()));
@@ -183,6 +191,22 @@ function splitTopLevel(text: string, separator: RegExp): string[] {
 
   parts.push(text.slice(lastIndex));
   return parts;
+}
+
+function hasBalancedBrackets(text: string): boolean {
+  let square = 0;
+  let round = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (ch === "[") square += 1;
+    else if (ch === "]") square -= 1;
+    else if (ch === "(") round += 1;
+    else if (ch === ")") round -= 1;
+    if (square < 0 || round < 0) {
+      return false;
+    }
+  }
+  return square === 0 && round === 0;
 }
 
 function stripOuterParens(text: string): string {

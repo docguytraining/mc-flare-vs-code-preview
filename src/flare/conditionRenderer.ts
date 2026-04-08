@@ -144,8 +144,22 @@ export function applyConditions(
     const rawConditionList = conditionsMatch[2];
     bumpCount(elementConditionCounts, rawConditionList);
 
+    // Flare topics occasionally use magic literals (`false`, `0`, `none`,
+    // `exclude`, `hide`) instead of a real condition tag list to force-hide
+    // a block at preview time. The downstream legacy `replaceConditionalBlocks`
+    // handler used to recognize these, but it never sees them now that
+    // `applyConditions` strips the conditions attribute first. Centralize the
+    // check here so both code paths agree.
+    const trimmedRaw = rawConditionList.trim().toLowerCase();
+    const isMagicDisabled =
+      trimmedRaw === "false" ||
+      trimmedRaw === "0" ||
+      trimmedRaw === "none" ||
+      trimmedRaw === "exclude" ||
+      trimmedRaw === "hide";
+
     const tagList = parseConditionsAttribute(rawConditionList);
-    const shouldRender = shouldRenderForTags(expression, tagList);
+    const shouldRender = !isMagicDisabled && shouldRenderForTags(expression, tagList);
 
     if (!shouldRender) {
       hiddenCount += 1;
