@@ -237,11 +237,17 @@ const unsupportedTagTransformHandler: TransformHandler = {
   }
 };
 
+// Handler order matters. The snippet handler must run before any handler
+// that needs to see the loaded snippet body — otherwise tags inside a
+// snippet (e.g. `<MadCap:dropDown>`) will never be processed and will fall
+// through to the unsupported-tag fallback. Variables are the one exception:
+// `loadSnippet` re-runs the variable substitution on each loaded body so
+// that pass doesn't depend on this ordering.
 const REGISTERED_HANDLERS: TransformHandler[] = [
   variableTransformHandler,
   conditionalTransformHandler,
-  dropDownTransformHandler,
   snippetTransformHandler,
+  dropDownTransformHandler,
   xrefTransformHandler,
   relatedTopicsTransformHandler,
   proxyPlaceholderTransformHandler,

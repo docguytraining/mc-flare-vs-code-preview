@@ -43,6 +43,71 @@ suite("MadCap Transform Pipeline", () => {
     assert.ok(result.warnings.some((warning) => warning.includes("Conditional block hidden")));
   });
 
+  test("renders dropDown / dropDownHead / dropDownHotspot / dropDownBody inside a snippet body (regression)", async () => {
+    // The dropDown handler used to run *before* the snippet handler, which
+    // meant any dropDown markup that lived inside a `.flsnp` body never got
+    // transformed and fell through to the unsupported-tag fallback. The
+    // pipeline now runs snippets first so the loaded body is visible to the
+    // dropDown pass that runs immediately after.
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-dropdown-snippet-"));
+    const snippetPath = path.join(tempDir, "with-dropdown.flsnp");
+    await fs.writeFile(
+      snippetPath,
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<html><body>",
+        "  <MadCap:dropDown>",
+        "    <MadCap:dropDownHead>",
+        "      <MadCap:dropDownHotspot>Click to expand</MadCap:dropDownHotspot>",
+        "    </MadCap:dropDownHead>",
+        "    <MadCap:dropDownBody>",
+        "      <p>Hidden body content from inside the snippet.</p>",
+        "    </MadCap:dropDownBody>",
+        "  </MadCap:dropDown>",
+        "</body></html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const html = '<MadCap:snippetBlock src="with-dropdown.flsnp" />';
+    const result = await transformMadcapContent(html, {
+      variables: new Map<string, string>(),
+      projectContext: undefined,
+      currentDocument: vscode.Uri.file(path.join(tempDir, "topic.htm"))
+    });
+
+    assert.ok(
+      result.html.includes("<details"),
+      "expected the dropDown inside the snippet to render as <details>"
+    );
+    assert.ok(
+      result.html.includes("Click to expand"),
+      "expected the hotspot to become the <summary>"
+    );
+    assert.ok(
+      result.html.includes("Hidden body content from inside the snippet."),
+      "expected the dropDownBody content to survive"
+    );
+    // None of the structural dropDown wrappers should leak through as
+    // unsupported tags.
+    assert.ok(
+      !result.html.includes("Unsupported MadCap:dropDown"),
+      "dropDown should not be marked unsupported"
+    );
+    assert.ok(
+      !result.html.includes("Unsupported MadCap:dropDownHead"),
+      "dropDownHead should not be marked unsupported"
+    );
+    assert.ok(
+      !result.html.includes("Unsupported MadCap:dropDownHotspot"),
+      "dropDownHotspot should not be marked unsupported"
+    );
+    assert.ok(
+      !result.html.includes("Unsupported MadCap:dropDownBody"),
+      "dropDownBody should not be marked unsupported"
+    );
+  });
+
   test("loads snippets and marks unsupported tags", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-preview-test-"));
     const snippetPath = path.join(tempDir, "snippet.htm");
