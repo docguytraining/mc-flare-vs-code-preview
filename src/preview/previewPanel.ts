@@ -535,7 +535,7 @@ function isExternalOrDataUrl(value: string): boolean {
 }
 
 function isAnchorOrFragment(value: string): boolean {
-  return value.startsWith("#") || value.startsWith("javascript:");
+  return value.startsWith("#");
 }
 
 function splitHash(href: string): [string, string | undefined] {

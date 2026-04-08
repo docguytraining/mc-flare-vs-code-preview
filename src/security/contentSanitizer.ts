@@ -16,12 +16,12 @@ export interface SanitizeResult {
   removed: string[];
 }
 
-const SCRIPT_TAG_REGEX = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
+const SCRIPT_TAG_REGEX = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
 const SELF_CLOSING_SCRIPT_REGEX = /<script\b[^>]*\/>/gi;
-const IFRAME_TAG_REGEX = /<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi;
-const OBJECT_TAG_REGEX = /<(object|embed|applet)\b[^>]*>[\s\S]*?<\/\1>/gi;
+const IFRAME_TAG_REGEX = /<iframe\b[^>]*>[\s\S]*?<\/iframe\s*>/gi;
+const OBJECT_TAG_REGEX = /<(object|embed|applet)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const SELF_CLOSING_OBJECT_REGEX = /<(object|embed|applet)\b[^>]*\/>/gi;
-const STYLE_TAG_REGEX = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+const STYLE_TAG_REGEX = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
 const META_REFRESH_REGEX = /<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi;
 const EVENT_HANDLER_REGEX = /\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const JAVASCRIPT_URL_REGEX = /\b(href|src|xlink:href|formaction|action)\s*=\s*(["'])\s*javascript:[^"']*\2/gi;
@@ -31,30 +31,43 @@ export function sanitizeHtml(html: string): SanitizeResult {
   const removed: string[] = [];
   let output = html;
 
-  output = stripWithReport(output, SCRIPT_TAG_REGEX, "script tag", removed);
-  output = stripWithReport(output, SELF_CLOSING_SCRIPT_REGEX, "script tag", removed);
-  output = stripWithReport(output, IFRAME_TAG_REGEX, "iframe tag", removed);
-  output = stripWithReport(output, OBJECT_TAG_REGEX, "object/embed/applet tag", removed);
-  output = stripWithReport(output, SELF_CLOSING_OBJECT_REGEX, "object/embed/applet tag", removed);
-  output = stripWithReport(output, STYLE_TAG_REGEX, "inline <style> block", removed);
-  output = stripWithReport(output, META_REFRESH_REGEX, "meta refresh", removed);
+  // Run passes in a loop until the output stabilizes. A single pass can be
+  // defeated by nested obfuscation like `<scr<script>ipt>` or `on<onclick>=`,
+  // where stripping the inner construct leaves a fresh dangerous token behind.
+  // Bound the iterations so a pathological input cannot spin forever.
+  const MAX_PASSES = 8;
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const before = output;
 
-  if (EVENT_HANDLER_REGEX.test(output)) {
-    removed.push("inline event handler");
-    EVENT_HANDLER_REGEX.lastIndex = 0;
-    output = output.replace(EVENT_HANDLER_REGEX, "");
-  }
+    output = stripWithReport(output, SCRIPT_TAG_REGEX, "script tag", removed);
+    output = stripWithReport(output, SELF_CLOSING_SCRIPT_REGEX, "script tag", removed);
+    output = stripWithReport(output, IFRAME_TAG_REGEX, "iframe tag", removed);
+    output = stripWithReport(output, OBJECT_TAG_REGEX, "object/embed/applet tag", removed);
+    output = stripWithReport(output, SELF_CLOSING_OBJECT_REGEX, "object/embed/applet tag", removed);
+    output = stripWithReport(output, STYLE_TAG_REGEX, "inline <style> block", removed);
+    output = stripWithReport(output, META_REFRESH_REGEX, "meta refresh", removed);
 
-  if (JAVASCRIPT_URL_REGEX.test(output)) {
-    removed.push("javascript: URL");
-    JAVASCRIPT_URL_REGEX.lastIndex = 0;
-    output = output.replace(JAVASCRIPT_URL_REGEX, (_match, attr: string) => `${attr}="#"`);
-  }
+    if (EVENT_HANDLER_REGEX.test(output)) {
+      removed.push("inline event handler");
+      EVENT_HANDLER_REGEX.lastIndex = 0;
+      output = output.replace(EVENT_HANDLER_REGEX, "");
+    }
 
-  if (DATA_URL_IN_HREF_REGEX.test(output)) {
-    removed.push("non-image data: URL");
-    DATA_URL_IN_HREF_REGEX.lastIndex = 0;
-    output = output.replace(DATA_URL_IN_HREF_REGEX, (_match, attr: string) => `${attr}="#"`);
+    if (JAVASCRIPT_URL_REGEX.test(output)) {
+      removed.push("javascript: URL");
+      JAVASCRIPT_URL_REGEX.lastIndex = 0;
+      output = output.replace(JAVASCRIPT_URL_REGEX, (_match, attr: string) => `${attr}="#"`);
+    }
+
+    if (DATA_URL_IN_HREF_REGEX.test(output)) {
+      removed.push("non-image data: URL");
+      DATA_URL_IN_HREF_REGEX.lastIndex = 0;
+      output = output.replace(DATA_URL_IN_HREF_REGEX, (_match, attr: string) => `${attr}="#"`);
+    }
+
+    if (output === before) {
+      break;
+    }
   }
 
   return { html: output, removed: dedupe(removed) };
