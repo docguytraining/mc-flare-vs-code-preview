@@ -55,7 +55,7 @@ suite("XrefSnippetCompletionProvider", () => {
     const labels = items!.map((item) => item.label);
     assert.deepStrictEqual(
       labels.sort(),
-      ["cblock", "cond", "snip", "snipblock", "xref"]
+      ["cblock", "cond", "snip", "snipblock", "var", "xref"]
     );
     const xref = items!.find((item) => item.label === "xref")!;
     const xrefSnippet = (xref.insertText as vscode.SnippetString).value;
