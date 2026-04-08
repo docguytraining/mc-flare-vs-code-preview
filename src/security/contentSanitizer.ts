@@ -16,12 +16,16 @@ export interface SanitizeResult {
   removed: string[];
 }
 
-const SCRIPT_TAG_REGEX = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+// End-tag regexes follow the HTML5 parser rule: `</tag` followed by ASCII
+// whitespace, `/`, or `>` is an end tag, with anything up to the next `>`
+// treated as ignored attributes. So `</script\n foo bar>` really does close
+// a <script>. `\b` keeps us from matching `</scripts>` etc.
+const SCRIPT_TAG_REGEX = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi;
 const SELF_CLOSING_SCRIPT_REGEX = /<script\b[^>]*\/>/gi;
-const IFRAME_TAG_REGEX = /<iframe\b[^>]*>[\s\S]*?<\/iframe\s*>/gi;
-const OBJECT_TAG_REGEX = /<(object|embed|applet)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const IFRAME_TAG_REGEX = /<iframe\b[^>]*>[\s\S]*?<\/iframe\b[^>]*>/gi;
+const OBJECT_TAG_REGEX = /<(object|embed|applet)\b[^>]*>[\s\S]*?<\/\1\b[^>]*>/gi;
 const SELF_CLOSING_OBJECT_REGEX = /<(object|embed|applet)\b[^>]*\/>/gi;
-const STYLE_TAG_REGEX = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
+const STYLE_TAG_REGEX = /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi;
 const META_REFRESH_REGEX = /<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi;
 const EVENT_HANDLER_REGEX = /\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const JAVASCRIPT_URL_REGEX = /\b(href|src|xlink:href|formaction|action)\s*=\s*(["'])\s*javascript:[^"']*\2/gi;
@@ -31,44 +35,38 @@ export function sanitizeHtml(html: string): SanitizeResult {
   const removed: string[] = [];
   let output = html;
 
-  // Run passes in a loop until the output stabilizes. A single pass can be
-  // defeated by nested obfuscation like `<scr<script>ipt>` or `on<onclick>=`,
-  // where stripping the inner construct leaves a fresh dangerous token behind.
-  // Bound the iterations so a pathological input cannot spin forever.
-  const MAX_PASSES = 8;
-  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const before = output;
+  // Each strip is run to a fixpoint so nested obfuscation like
+  // `<scr<script>ipt>` or `on<onclick>click=` cannot survive — removing the
+  // inner token would otherwise leave a fresh dangerous token behind.
+  output = stripUntilStable(output, SCRIPT_TAG_REGEX, "script tag", removed);
+  output = stripUntilStable(output, SELF_CLOSING_SCRIPT_REGEX, "script tag", removed);
+  output = stripUntilStable(output, IFRAME_TAG_REGEX, "iframe tag", removed);
+  output = stripUntilStable(output, OBJECT_TAG_REGEX, "object/embed/applet tag", removed);
+  output = stripUntilStable(output, SELF_CLOSING_OBJECT_REGEX, "object/embed/applet tag", removed);
+  output = stripUntilStable(output, STYLE_TAG_REGEX, "inline <style> block", removed);
+  output = stripUntilStable(output, META_REFRESH_REGEX, "meta refresh", removed);
 
-    output = stripWithReport(output, SCRIPT_TAG_REGEX, "script tag", removed);
-    output = stripWithReport(output, SELF_CLOSING_SCRIPT_REGEX, "script tag", removed);
-    output = stripWithReport(output, IFRAME_TAG_REGEX, "iframe tag", removed);
-    output = stripWithReport(output, OBJECT_TAG_REGEX, "object/embed/applet tag", removed);
-    output = stripWithReport(output, SELF_CLOSING_OBJECT_REGEX, "object/embed/applet tag", removed);
-    output = stripWithReport(output, STYLE_TAG_REGEX, "inline <style> block", removed);
-    output = stripWithReport(output, META_REFRESH_REGEX, "meta refresh", removed);
-
-    if (EVENT_HANDLER_REGEX.test(output)) {
-      removed.push("inline event handler");
-      EVENT_HANDLER_REGEX.lastIndex = 0;
-      output = output.replace(EVENT_HANDLER_REGEX, "");
-    }
-
-    if (JAVASCRIPT_URL_REGEX.test(output)) {
-      removed.push("javascript: URL");
-      JAVASCRIPT_URL_REGEX.lastIndex = 0;
-      output = output.replace(JAVASCRIPT_URL_REGEX, (_match, attr: string) => `${attr}="#"`);
-    }
-
-    if (DATA_URL_IN_HREF_REGEX.test(output)) {
-      removed.push("non-image data: URL");
-      DATA_URL_IN_HREF_REGEX.lastIndex = 0;
-      output = output.replace(DATA_URL_IN_HREF_REGEX, (_match, attr: string) => `${attr}="#"`);
-    }
-
-    if (output === before) {
-      break;
-    }
-  }
+  output = replaceUntilStable(
+    output,
+    EVENT_HANDLER_REGEX,
+    () => "",
+    "inline event handler",
+    removed
+  );
+  output = replaceUntilStable(
+    output,
+    JAVASCRIPT_URL_REGEX,
+    (_match: string, attr: string) => `${attr}="#"`,
+    "javascript: URL",
+    removed
+  );
+  output = replaceUntilStable(
+    output,
+    DATA_URL_IN_HREF_REGEX,
+    (_match: string, attr: string) => `${attr}="#"`,
+    "non-image data: URL",
+    removed
+  );
 
   return { html: output, removed: dedupe(removed) };
 }
@@ -95,19 +93,44 @@ export function sanitizeCss(css: string): { css: string; removed: number } {
   return { css: output, removed };
 }
 
-function stripWithReport(
+function stripUntilStable(
   html: string,
   regex: RegExp,
   label: string,
   removed: string[]
 ): string {
-  regex.lastIndex = 0;
-  if (!regex.test(html)) {
-    return html;
+  return replaceUntilStable(html, regex, () => "", label, removed);
+}
+
+// Iterates `replace` to a fixpoint so removing one match cannot synthesize a
+// new one (e.g. `<scr<script>ipt>` → `<script>` after one pass). The loop is
+// the canonical CodeQL-recognized form: each iteration both reads and writes
+// `current`, and the loop terminates when no further substitutions occur.
+function replaceUntilStable(
+  html: string,
+  regex: RegExp,
+  replacement: (match: string, ...groups: string[]) => string,
+  label: string,
+  removed: string[]
+): string {
+  let previous: string;
+  let current = html;
+  let didReplace = false;
+  do {
+    previous = current;
+    regex.lastIndex = 0;
+    current = previous.replace(regex, (match, ...args) => {
+      didReplace = true;
+      // The trailing args from String.replace are: ...captures, offset, full
+      // string. We only forward the captures to the caller's replacement.
+      const captures = args.slice(0, -2) as string[];
+      return replacement(match, ...captures);
+    });
+  } while (current !== previous);
+  if (didReplace) {
+    removed.push(label);
   }
-  removed.push(label);
-  regex.lastIndex = 0;
-  return html.replace(regex, "");
+  return current;
 }
 
 function dedupe(items: string[]): string[] {
