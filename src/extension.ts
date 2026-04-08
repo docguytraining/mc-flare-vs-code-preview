@@ -25,6 +25,7 @@ import { VariableCompletionProvider } from "./language/variableCompletionProvide
 import { VariableSuggestionEngine } from "./language/variableSuggestionEngine";
 import { XrefCompletionProvider } from "./language/xrefCompletionProvider";
 import { LinkValidator } from "./diagnostics/linkValidator";
+import { VariableReferenceDiagnostics } from "./diagnostics/variableReferenceDiagnostics";
 import { DismissalStore } from "./diagnostics/dismissalStore";
 import {
   registerInsertXrefCommand,
@@ -74,8 +75,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const suggestionDiagnostics = vscode.languages.createDiagnosticCollection("flare-variables");
   const linkDiagnostics = vscode.languages.createDiagnosticCollection("flare-links");
   const conditionDiagnostics = vscode.languages.createDiagnosticCollection("flare-conditions");
+  const variableReferenceDiagnostics = vscode.languages.createDiagnosticCollection(
+    "flare-variable-references"
+  );
   const suggestionEngine = new VariableSuggestionEngine(suggestionDiagnostics, projectResolver, dismissalStore);
   const linkValidator = new LinkValidator(linkDiagnostics, projectResolver);
+  const variableReferenceValidator = new VariableReferenceDiagnostics(
+    variableReferenceDiagnostics,
+    projectResolver
+  );
   const conditionDiagnosticProvider = new ConditionDiagnosticProvider(
     conditionDiagnostics,
     projectResolver,
@@ -97,6 +105,9 @@ export function activate(context: vscode.ExtensionContext): void {
       authoringTimers.delete(key);
       void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
       void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+      void variableReferenceValidator
+        .refresh(document)
+        .catch((error) => logError("Variable reference validator failed", error));
       void conditionDiagnosticProvider
         .validate(document)
         .catch((error) => logError("Condition diagnostic provider failed", error));
@@ -110,6 +121,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     void suggestionEngine.refresh(document).catch((error) => logError("Suggestion engine failed", error));
     void linkValidator.validate(document).catch((error) => logError("Link validator failed", error));
+    void variableReferenceValidator
+      .refresh(document)
+      .catch((error) => logError("Variable reference validator failed", error));
     void conditionDiagnosticProvider
       .validate(document)
       .catch((error) => logError("Condition diagnostic provider failed", error));
@@ -315,6 +329,17 @@ export function activate(context: vscode.ExtensionContext): void {
     conditionTagIndex.invalidateForPath(uri.fsPath);
     snippetIndex.invalidateForPath(uri.fsPath);
     conditionGutter.refreshAll();
+    // A `.flvar` change can resolve (or break) a `<MadCap:variable>`
+    // reference in any open topic. Re-run the unresolved-variable squiggle
+    // pass on every open Flare topic so the editor catches up immediately
+    // instead of waiting for the next typing event.
+    for (const document of vscode.workspace.textDocuments) {
+      if (isFlareHtmlDocument(document)) {
+        void variableReferenceValidator
+          .refresh(document)
+          .catch((error) => logError("Variable reference validator failed", error));
+      }
+    }
     FlarePreviewPanel.refreshCurrent(buildPreviewData);
   };
 
@@ -362,6 +387,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const onDidClose = vscode.workspace.onDidCloseTextDocument((document) => {
     suggestionEngine.clear(document.uri);
     linkValidator.clear(document.uri);
+    variableReferenceValidator.clear(document.uri);
     const key = document.uri.toString();
     const timer = authoringTimers.get(key);
     if (timer) {
@@ -585,7 +611,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const collections = [
         suggestionDiagnostics,
         linkDiagnostics,
-        conditionDiagnostics
+        conditionDiagnostics,
+        variableReferenceDiagnostics
       ];
       for (const collection of collections) {
         const toDelete: vscode.Uri[] = [];
@@ -857,6 +884,8 @@ export function activate(context: vscode.ExtensionContext): void {
     suggestionDiagnostics,
     linkDiagnostics,
     conditionDiagnostics,
+    variableReferenceDiagnostics,
+    suggestionEngine,
     conditionGutter,
     {
       dispose: () => {

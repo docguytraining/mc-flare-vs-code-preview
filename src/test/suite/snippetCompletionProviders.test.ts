@@ -80,6 +80,24 @@ suite("SnippetBracketCompletionProvider", () => {
     const items = await provider.provideCompletionItems(document, new vscode.Position(0, 5));
     assert.strictEqual(items, undefined);
   });
+
+  // Issue 1 — auto-close braces leak `}}` after the inserted snippet tag
+  // unless the replace range swallows them.
+  test("replace range covers the auto-closed }} when the cursor sits between {{ and }}", async () => {
+    const { topicUri } = await makeProject("<p>see {{}}</p>");
+    const document = await vscode.workspace.openTextDocument(topicUri);
+    const provider = new SnippetBracketCompletionProvider(
+      new FlareProjectResolver(),
+      new SnippetIndex()
+    );
+    const position = new vscode.Position(0, 9);
+    const items = await provider.provideCompletionItems(document, position);
+    assert.ok(items);
+    const range = items![0].range as vscode.Range;
+    assert.ok(range);
+    assert.strictEqual(range.start.character, 7, "start at the first {");
+    assert.strictEqual(range.end.character, 11, "end after the last }");
+  });
 });
 
 suite("SnippetSrcCompletionProvider", () => {

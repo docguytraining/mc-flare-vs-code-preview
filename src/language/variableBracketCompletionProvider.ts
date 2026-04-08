@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { VariableIndex } from "../flare/variableIndex";
+import { expandRangeOverTrailingCloseBrackets } from "./xrefBracketCompletionProvider";
 
 const TRIGGER = "@@";
 
@@ -53,7 +54,11 @@ export class VariableBracketCompletionProvider implements vscode.CompletionItemP
       return undefined;
     }
 
-    const replaceRange = prefixRange;
+    // `@` doesn't have an auto-close pair the way `[`/`{` do, but the
+    // helper is a no-op when no closer is present and lets us keep the
+    // three providers symmetric. If a future user types `@@` after some
+    // odd autoclose extension we still erase the leftovers.
+    const replaceRange = expandRangeOverTrailingCloseBrackets(document, position, prefixRange);
     return entries.map((entry) => {
       const item = new vscode.CompletionItem(
         { label: entry.qualifiedName, description: entry.value },

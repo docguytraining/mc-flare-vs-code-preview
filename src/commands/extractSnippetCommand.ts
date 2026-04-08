@@ -6,6 +6,7 @@ import { SnippetIndex } from "../flare/snippetIndex";
 import {
   buildSnippetFileContent,
   computeSnippetSrcAttribute,
+  rewriteLocalReferences,
   slugifySnippetName,
   stripCommonIndent
 } from "./extractSnippetHelpers";
@@ -138,7 +139,20 @@ export function registerExtractSnippetCommand(
         // File does not exist — continue.
       }
 
-      const fileContent = buildSnippetFileContent(innerXhtml);
+      // Rewrite every local reference attribute (`href`, `src`, `source`,
+      // `xlink:href`, `MadCap:Link`, `Link`, `File`, `Topic`) inside the
+      // lifted XHTML so each value still points at the right place from
+      // the new snippet file's location. Without this, nested xrefs,
+      // images, snippet refs, and TOC-like links in the selection break
+      // the moment the snippet file lives at a different depth than the
+      // source topic — exactly the bug authors run into when extracting
+      // a paragraph that contains an image or a sibling-relative xref.
+      const rewrittenXhtml = rewriteLocalReferences(
+        innerXhtml,
+        document.uri.fsPath,
+        newSnippetPath
+      );
+      const fileContent = buildSnippetFileContent(rewrittenXhtml);
       const srcAttribute = computeSnippetSrcAttribute(document.uri.fsPath, newSnippetPath);
 
       // Choose snippet vs snippetBlock based on whether the original selection

@@ -5,6 +5,124 @@ import * as path from "node:path";
  * `vscode` imports so they can be exercised by node-only unit tests.
  */
 
+/**
+ * Reference attributes whose values are local file paths inside a Flare
+ * project. Mirrors the list used by the cross-project rename scanner — any
+ * attribute that the rename scanner picks up needs to be rewritten by the
+ * snippet extractor too, otherwise nested xrefs / images / snippet refs in
+ * the lifted selection point at the *original* topic's directory and break
+ * the moment the new `.flsnp` file lives anywhere else.
+ *
+ * Case-insensitive match: real Flare project files use `Link` and `File`
+ * with capitalized first letters in TOCs and alias entries, while topic
+ * markup uses lowercase `href` and `src`.
+ */
+const REFERENCE_ATTRIBUTE_REGEX =
+  /\b(href|src|source|xlink:href|MadCap:Link|Link|File|Topic)\s*=\s*(["'])([^"']*)\2/gi;
+
+/** Schemes (and protocol-relative URIs) that the rewriter must leave alone. */
+const EXTERNAL_SCHEME_REGEX =
+  /^(?:https?|mailto|tel|ftp|data|javascript|vscode-webview):/i;
+
+/**
+ * Walks the lifted XHTML and rewrites every local reference attribute so
+ * its value stays valid from the new snippet file's location. Each value
+ * is resolved relative to `fromTopicPath` (where it currently makes
+ * sense) and re-emitted relative to `toSnippetPath` (where the snippet
+ * will live after the extraction edit).
+ *
+ * The rewriter handles:
+ *   - Sibling-relative refs (`../images/foo.png`) — re-anchored to the new
+ *     snippet directory.
+ *   - Project-root-relative refs (`/Content/Topics/Foo.htm`) — left
+ *     untouched, since `/`-prefixed Flare paths are always rooted at the
+ *     project, not at the source topic.
+ *   - Bare anchor refs (`#bookmark`) — left untouched.
+ *   - External / scheme-prefixed URLs (`http(s)://`, `mailto:`, etc.) —
+ *     left untouched. The scanner never makes network requests.
+ *   - Empty values — left untouched.
+ *
+ * `#fragment` suffixes on file paths are preserved verbatim.
+ *
+ * Exported and `vscode`-free so it can be unit-tested without launching
+ * an extension host.
+ */
+export function rewriteLocalReferences(
+  innerXhtml: string,
+  fromTopicPath: string,
+  toSnippetPath: string
+): string {
+  const fromDir = path.dirname(fromTopicPath);
+  const toDir = path.dirname(toSnippetPath);
+  // Identical source and destination directories means every relative ref
+  // already lines up — no rewrite needed. Project-root refs would also be
+  // a no-op, so we can short-circuit.
+  if (path.normalize(fromDir) === path.normalize(toDir)) {
+    return innerXhtml;
+  }
+
+  return innerXhtml.replace(
+    REFERENCE_ATTRIBUTE_REGEX,
+    (fullMatch, attrName: string, quote: string, value: string) => {
+      const rewritten = rewriteOneReferenceValue(value, fromDir, toDir);
+      if (rewritten === value) {
+        return fullMatch;
+      }
+      return `${attrName}=${quote}${rewritten}${quote}`;
+    }
+  );
+}
+
+/**
+ * Pure helper exposed for unit tests. Returns the rewritten value for a
+ * single attribute value, or the input unchanged if no rewrite applies.
+ */
+export function rewriteOneReferenceValue(
+  value: string,
+  fromDir: string,
+  toDir: string
+): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return value;
+  }
+  if (EXTERNAL_SCHEME_REGEX.test(trimmed) || trimmed.startsWith("//")) {
+    return value;
+  }
+  if (trimmed.startsWith("#")) {
+    return value;
+  }
+  // Flare's `/`-prefixed paths are project-root-relative — they don't
+  // depend on where the file containing them lives, so they survive a
+  // move without rewriting. Same for Windows drive-letter absolutes
+  // (rare, but possible in legacy projects).
+  if (trimmed.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(trimmed)) {
+    return value;
+  }
+
+  const [pathPart, anchorPart] = splitHash(trimmed);
+  if (pathPart.length === 0) {
+    return value;
+  }
+
+  const absolute = path.resolve(fromDir, pathPart.replace(/\\/g, "/"));
+  const rewritten = path.relative(toDir, absolute).replace(/\\/g, "/");
+  // `path.relative` returns "" when the two paths point at the same file
+  // (rare, but possible if the lifted reference targets the snippet
+  // itself). Fall back to the bare basename in that case.
+  const rewrittenPath =
+    rewritten.length > 0 ? rewritten : path.basename(absolute);
+  return anchorPart === undefined ? rewrittenPath : `${rewrittenPath}#${anchorPart}`;
+}
+
+function splitHash(href: string): [string, string | undefined] {
+  const index = href.indexOf("#");
+  if (index < 0) {
+    return [href, undefined];
+  }
+  return [href.slice(0, index), href.slice(index + 1)];
+}
+
 const RESERVED_NAMES = new Set(["con", "prn", "aux", "nul"]);
 
 export interface SlugifyResult {

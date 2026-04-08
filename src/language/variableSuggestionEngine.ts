@@ -22,14 +22,47 @@ interface SuggestionMatch {
  * than `flarePreview.variableReplacementMinLength` are ignored to cut down on
  * noise for short words.
  */
-export class VariableSuggestionEngine implements vscode.CodeActionProvider {
+export class VariableSuggestionEngine implements vscode.CodeActionProvider, vscode.Disposable {
   public static readonly diagnosticCode = SUGGESTION_CODE;
+
+  /**
+   * Per-document cache of the suggestion ranges. The Hint diagnostic stays
+   * around so the lightbulb / Cmd+. quick-fix still surfaces, but VS Code
+   * only renders Hint severity as a small triple-dot indicator under the
+   * *first* character of the range. Authors expect the visual cue to span
+   * the whole literal that would be replaced, so we layer a dotted-underline
+   * `TextEditorDecorationType` on top of the diagnostic. The cache lets us
+   * re-apply the decoration when the visible editor set changes (split,
+   * reveal, tab switch) without re-running the regex scan.
+   */
+  private readonly rangeCache = new Map<string, vscode.Range[]>();
+  private readonly decorationType: vscode.TextEditorDecorationType;
+  private readonly visibleEditorListener: vscode.Disposable;
 
   public constructor(
     private readonly diagnostics: vscode.DiagnosticCollection,
     private readonly projectResolver: FlareProjectResolver,
     private readonly dismissalStore: DismissalStore
-  ) {}
+  ) {
+    this.decorationType = vscode.window.createTextEditorDecorationType({
+      // Dotted underline that the editor draws across the full range — this
+      // is the visual cue authors recognize as "we have a suggestion for
+      // this phrase". Color is taken from the editor info-foreground theme
+      // token so light and dark themes both stay legible.
+      textDecoration: "underline dotted",
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+      overviewRulerLane: vscode.OverviewRulerLane.Right
+    });
+    this.visibleEditorListener = vscode.window.onDidChangeVisibleTextEditors(() => {
+      this.applyDecorationsToVisibleEditors();
+    });
+  }
+
+  public dispose(): void {
+    this.visibleEditorListener.dispose();
+    this.decorationType.dispose();
+    this.rangeCache.clear();
+  }
 
   public async refresh(document: vscode.TextDocument): Promise<void> {
     if (!isFlareTopic(document)) {
@@ -40,6 +73,7 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
     const enabled = config.get<boolean>("suggestVariableReplacements", true);
     if (!enabled) {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
 
@@ -56,10 +90,12 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
       projectContext = await this.projectResolver.resolveForFile(document.uri);
     } catch {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
     if (!projectContext) {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
 
@@ -74,18 +110,21 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
     const variableResult = await resolveVariables(document.getText(), projectContext);
     if (variableResult.variables.size === 0) {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
 
     const valueToName = buildReverseLookup(variableResult.variables, minLength, ignoreList);
     if (valueToName.size === 0) {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
 
     const matches = findMatches(document, valueToName);
     if (matches.length === 0) {
       this.diagnostics.delete(document.uri);
+      this.clearRangesFor(document.uri);
       return;
     }
 
@@ -111,10 +150,37 @@ export class VariableSuggestionEngine implements vscode.CodeActionProvider {
     });
 
     this.diagnostics.set(document.uri, entries);
+    this.rangeCache.set(document.uri.toString(), matches.map((match) => match.range));
+    this.applyDecorationsToVisibleEditors();
   }
 
   public clear(uri: vscode.Uri): void {
     this.diagnostics.delete(uri);
+    this.clearRangesFor(uri);
+  }
+
+  private clearRangesFor(uri: vscode.Uri): void {
+    this.rangeCache.delete(uri.toString());
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.uri.toString() === uri.toString()) {
+        editor.setDecorations(this.decorationType, []);
+      }
+    }
+  }
+
+  /**
+   * Re-applies the dotted-underline decoration to every visible editor
+   * whose document has cached suggestion ranges. Called after each refresh
+   * and whenever the visible editor set changes (split, reveal, tab
+   * switch). Editors with no cached ranges have their decorations cleared,
+   * so a stale decoration can never linger after the engine clears the
+   * matches for a document.
+   */
+  private applyDecorationsToVisibleEditors(): void {
+    for (const editor of vscode.window.visibleTextEditors) {
+      const ranges = this.rangeCache.get(editor.document.uri.toString());
+      editor.setDecorations(this.decorationType, ranges ?? []);
+    }
   }
 
   public provideCodeActions(
