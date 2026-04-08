@@ -5,7 +5,10 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../../core/flareProjectResolver";
 import { TopicIndex } from "../../flare/topicIndex";
-import { XrefBracketCompletionProvider } from "../../language/xrefBracketCompletionProvider";
+import {
+  XrefBracketCompletionProvider,
+  expandRangeOverTrailingCloseBrackets
+} from "../../language/xrefBracketCompletionProvider";
 
 async function makeProject(activeTopicContent: string): Promise<vscode.Uri> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "flare-xref-bracket-"));
@@ -69,5 +72,100 @@ suite("XrefBracketCompletionProvider", () => {
     );
     const items = await provider.provideCompletionItems(document, new vscode.Position(0, 5));
     assert.strictEqual(items, undefined);
+  });
+
+  // Issue 1 — auto-close brackets leak ]] after the inserted xref unless
+  // we extend the replacement range to swallow them.
+  test("replace range covers the auto-closed ]] when the cursor sits between [[ and ]]", async () => {
+    // VS Code's HTML auto-closer turns the user typing `[[` into `[[]]`
+    // with the cursor between the two halves. The completion item must
+    // therefore replace `[[]]`, not just `[[`, otherwise the rendered
+    // xref tag is followed by stray `]]` characters.
+    const topicUri = await makeProject("<p>see [[]]</p>");
+    const document = await vscode.workspace.openTextDocument(topicUri);
+    const provider = new XrefBracketCompletionProvider(
+      new FlareProjectResolver(),
+      new TopicIndex()
+    );
+    // Position 9 is between `[[` and `]]` in `<p>see [[]]</p>`.
+    const position = new vscode.Position(0, 9);
+    const items = await provider.provideCompletionItems(document, position);
+    assert.ok(items);
+    assert.ok(items!.length > 0);
+    const range = items![0].range as vscode.Range;
+    assert.ok(range, "completion item should carry an explicit replace range");
+    assert.strictEqual(range.start.character, 7, "range starts at the first [");
+    assert.strictEqual(range.end.character, 11, "range ends after the second ]");
+  });
+
+  test("replace range covers a single trailing ] when only one ] was auto-closed", async () => {
+    const topicUri = await makeProject("<p>see [[]</p>");
+    const document = await vscode.workspace.openTextDocument(topicUri);
+    const provider = new XrefBracketCompletionProvider(
+      new FlareProjectResolver(),
+      new TopicIndex()
+    );
+    const position = new vscode.Position(0, 9);
+    const items = await provider.provideCompletionItems(document, position);
+    assert.ok(items);
+    const range = items![0].range as vscode.Range;
+    assert.strictEqual(range.start.character, 7);
+    assert.strictEqual(range.end.character, 10);
+  });
+
+  test("replace range stays at the cursor when no auto-closed ] follows", async () => {
+    const topicUri = await makeProject("<p>see [[</p>");
+    const document = await vscode.workspace.openTextDocument(topicUri);
+    const provider = new XrefBracketCompletionProvider(
+      new FlareProjectResolver(),
+      new TopicIndex()
+    );
+    const position = new vscode.Position(0, 9);
+    const items = await provider.provideCompletionItems(document, position);
+    assert.ok(items);
+    const range = items![0].range as vscode.Range;
+    assert.strictEqual(range.start.character, 7);
+    assert.strictEqual(range.end.character, 9, "no closer to consume");
+  });
+
+  // Pure helper unit tests so the behavior is verifiable without standing
+  // up a topic + project fixture.
+  suite("expandRangeOverTrailingCloseBrackets", () => {
+    test("consumes up to two trailing close brackets", async () => {
+      const topicUri = await makeProject("xx[[]]");
+      const document = await vscode.workspace.openTextDocument(topicUri);
+      const cursor = new vscode.Position(0, 4);
+      const baseRange = new vscode.Range(new vscode.Position(0, 2), cursor);
+      const expanded = expandRangeOverTrailingCloseBrackets(document, cursor, baseRange);
+      assert.strictEqual(expanded.start.character, 2);
+      assert.strictEqual(expanded.end.character, 6);
+    });
+
+    test("consumes one trailing close brace as well as bracket", async () => {
+      const topicUri = await makeProject("xx{{}");
+      const document = await vscode.workspace.openTextDocument(topicUri);
+      const cursor = new vscode.Position(0, 4);
+      const baseRange = new vscode.Range(new vscode.Position(0, 2), cursor);
+      const expanded = expandRangeOverTrailingCloseBrackets(document, cursor, baseRange);
+      assert.strictEqual(expanded.end.character, 5);
+    });
+
+    test("returns the input range unchanged when nothing follows the cursor", async () => {
+      const topicUri = await makeProject("xx[[");
+      const document = await vscode.workspace.openTextDocument(topicUri);
+      const cursor = new vscode.Position(0, 4);
+      const baseRange = new vscode.Range(new vscode.Position(0, 2), cursor);
+      const expanded = expandRangeOverTrailingCloseBrackets(document, cursor, baseRange);
+      assert.strictEqual(expanded.end.character, 4);
+    });
+
+    test("does not consume an unrelated trailing character", async () => {
+      const topicUri = await makeProject("xx[[abc");
+      const document = await vscode.workspace.openTextDocument(topicUri);
+      const cursor = new vscode.Position(0, 4);
+      const baseRange = new vscode.Range(new vscode.Position(0, 2), cursor);
+      const expanded = expandRangeOverTrailingCloseBrackets(document, cursor, baseRange);
+      assert.strictEqual(expanded.end.character, 4);
+    });
   });
 });

@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { FlareProjectResolver } from "../core/flareProjectResolver";
 import { SnippetIndex } from "../flare/snippetIndex";
+import { expandRangeOverTrailingCloseBrackets } from "./xrefBracketCompletionProvider";
 
 const TRIGGER = "{{";
 
@@ -54,7 +55,9 @@ export class SnippetBracketCompletionProvider implements vscode.CompletionItemPr
     }
 
     const documentDir = path.dirname(document.uri.fsPath);
-    const replaceRange = prefixRange;
+    // Erase the `{{` AND any auto-inserted `}}` (or partial `}`) that VS
+    // Code's bracket auto-close left immediately after the cursor.
+    const replaceRange = expandRangeOverTrailingCloseBrackets(document, position, prefixRange);
     return entries.map((entry) => {
       const relativeFromDocument = path
         .relative(documentDir, entry.absPath)

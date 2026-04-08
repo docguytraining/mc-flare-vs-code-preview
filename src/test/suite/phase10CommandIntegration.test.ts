@@ -298,4 +298,79 @@ suite("flare.extractSelectionAsSnippet — command", () => {
     assert.ok(onDisk.includes("<p>Hello</p>"));
     assert.ok(onDisk.includes("<p>World</p>"));
   });
+
+  // Issue 5 — when the lifted selection contains nested local references
+  // (a nested snippet, an image, an xref), the new .flsnp file must end up
+  // with each of those paths re-anchored to its own directory. Without
+  // the fix the inner src/href values stayed relative to the source
+  // topic, and any move of the snippet broke the references.
+  test("rewrites nested image/xref/snippet references to be relative to the new snippet file", async () => {
+    const { root, topicUri } = await makeProject(
+      [
+        "<body>",
+        "  <p>",
+        '    <img src="../Resources/Images/diagram.png" alt="diagram" />',
+        '    See <MadCap:xref href="Other.htm">other</MadCap:xref>',
+        '    <MadCap:snippet src="../Resources/Snippets/intro.flsnp" />',
+        "  </p>",
+        "</body>"
+      ].join("\n")
+    );
+    // Pre-create the referenced image so paths look real (not strictly
+    // necessary for the test — the rewriter is path-shape based — but it
+    // matches a realistic setup).
+    await fs.mkdir(path.join(root, "Content", "Resources", "Images"), { recursive: true });
+    await fs.writeFile(path.join(root, "Content", "Resources", "Images", "diagram.png"), "");
+
+    const editor = await openTopic(topicUri);
+    // Select the entire <p>…</p> block (line 1 col 2 — line 5 col 8).
+    const range = new vscode.Range(new vscode.Position(1, 2), new vscode.Position(5, 6));
+    editor.selection = new vscode.Selection(range.start, range.end);
+
+    await withStubs(
+      {
+        pick: (items, callIndex) => {
+          if (callIndex === 0) {
+            // Folder picker — pick the snippets root.
+            return items[0];
+          }
+          return items[0];
+        }
+      },
+      { next: () => "lifted-block" },
+      () =>
+        Promise.resolve(
+          vscode.commands.executeCommand(
+            "flare.extractSelectionAsSnippet",
+            editor.document.uri,
+            range
+          )
+        )
+    );
+
+    const newSnippetPath = path.join(
+      root,
+      "Content",
+      "Resources",
+      "Snippets",
+      "lifted-block.flsnp"
+    );
+    const onDisk = await fs.readFile(newSnippetPath, "utf8");
+
+    // Image: source topic referenced `../Resources/Images/diagram.png`
+    // (relative to Content/Topics/). From the new snippet file at
+    // Content/Resources/Snippets/lifted-block.flsnp, the same target is
+    // `../Images/diagram.png`.
+    assert.match(onDisk, /src="\.\.\/Images\/diagram\.png"/);
+
+    // Xref: source topic referenced `Other.htm` (sibling). From the new
+    // snippet file the same target is `../../Topics/Other.htm`.
+    assert.match(onDisk, /href="\.\.\/\.\.\/Topics\/Other\.htm"/);
+
+    // Nested snippet: source topic referenced
+    // `../Resources/Snippets/intro.flsnp`. From the new snippet file
+    // (which lives next to intro.flsnp) the same target is just
+    // `intro.flsnp`.
+    assert.match(onDisk, /src="intro\.flsnp"/);
+  });
 });

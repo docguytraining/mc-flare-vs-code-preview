@@ -59,7 +59,11 @@ export class XrefBracketCompletionProvider implements vscode.CompletionItemProvi
     }
 
     const documentDir = path.dirname(document.uri.fsPath);
-    const replaceRange = prefixRange; // erase `[[` on accept
+    // Erase the `[[` AND any auto-inserted `]]` (or partial `]`) that VS
+    // Code's bracket auto-close left immediately after the cursor. Without
+    // this the inserted xref tag is followed by stray `]]` characters in
+    // the topic.
+    const replaceRange = expandRangeOverTrailingCloseBrackets(document, position, prefixRange);
 
     return entries.map((entry) => {
       const relativeFromDocument = path
@@ -99,6 +103,39 @@ function cursorIsInsideTag(document: vscode.TextDocument, position: vscode.Posit
   const lastOpen = lineText.lastIndexOf("<");
   const lastClose = lineText.lastIndexOf(">");
   return lastOpen > lastClose;
+}
+
+/**
+ * VS Code auto-closes `[`/`{` for HTML, so by the time the second `[` (or
+ * `{`) lands the document looks like `[[]]` (or `{{}}`) with the cursor
+ * sitting between the two halves. The completion item replaces the opening
+ * pair with the inserted tag — but unless we widen the replacement range to
+ * also cover the trailing closers, the user is left with stray `]]`/`}}`
+ * characters after the new tag. Walks at most two characters past the
+ * cursor and includes any matching closer it finds.
+ */
+export function expandRangeOverTrailingCloseBrackets(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+  baseRange: vscode.Range
+): vscode.Range {
+  const line = document.lineAt(position.line).text;
+  let extra = 0;
+  while (extra < 2) {
+    const ch = line.charAt(position.character + extra);
+    if (ch === "]" || ch === "}") {
+      extra += 1;
+      continue;
+    }
+    break;
+  }
+  if (extra === 0) {
+    return baseRange;
+  }
+  return new vscode.Range(
+    baseRange.start,
+    new vscode.Position(position.line, position.character + extra)
+  );
 }
 
 function isFlareTopic(document: vscode.TextDocument): boolean {

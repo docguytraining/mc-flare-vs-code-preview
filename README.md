@@ -34,7 +34,7 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Insert Cross-Reference command** — opens a project-wide quick pick of every topic indexed by its first `<h1>`, then a follow-up picker for the bookmark to link to. Inserts `<MadCap:xref href="…">link text</MadCap:xref>` at the cursor with the link text preselected for editing.
 - **Cross-reference completion** — typing inside `<MadCap:xref>` or `<a>` `href="…"` attributes suggests project topics; typing `#` after a topic path lists bookmarks scanned from the target topic.
 - **`[[` topic picker** — anywhere in flowing prose, type `[[` and IntelliSense opens a project-wide list of every topic. Pick one and the `[[` is replaced with a complete `<MadCap:xref>` tag pointing at the chosen topic, with the heading prefilled as link text.
-- **Convert selection to cross-reference** — select prose, click the lightbulb, choose **Convert to cross-reference…**, and the selection is replaced with a `<MadCap:xref>` whose link text is your original selection. Same project-wide topic picker as the regular Insert command.
+- **Convert selection to cross-reference** — select prose, click the lightbulb, choose **Convert to cross-reference…**, and the selection is replaced with a `<MadCap:xref>` pointing at the chosen topic. Same project-wide topic picker as the regular Insert command. Note that MadCap Flare overwrites the link text at build time with the target topic's first `<h1>`, so the *source* selection text is preserved in the file but won't appear in any built output — pick the target topic for the cross-reference, not the wording.
 - **Tag-scaffolding snippet completions** — type `xref`, `cond`, `cblock`, `snip`, `snipblock`, or `var` to expand to a fully-formed `<MadCap:xref>`, `MadCap:conditions=""`, `<MadCap:conditionalBlock>`, `<MadCap:snippet />`, `<MadCap:snippetBlock />`, or `<MadCap:variable />` with tab stops in the right places.
 
 ### Snippet authoring
@@ -202,14 +202,14 @@ If the rename happened outside VS Code (terminal `mv`, file manager, `git mv`), 
 
 ### Scaffold a cross-reference from selected text
 
-Goal: turn the words "API reference" in your prose into a clickable link to the API topic without retyping them.
+Goal: turn an existing phrase in your prose into a `<MadCap:xref>` link without retyping the surrounding markup.
 
-1. Select the text you want to become the link.
+1. Select the text you want to convert.
 2. Click the lightbulb that appears (or press `Ctrl/Cmd+.`) and choose **Convert to cross-reference…**.
 3. Pick the target topic from the project-wide quick pick (and a bookmark, if the topic has any).
-4. The toolkit replaces your selection with `<MadCap:xref href="…">API reference</MadCap:xref>` — same href format as the regular Insert command, but the link text is whatever you originally selected.
+4. The toolkit replaces your selection with `<MadCap:xref href="…">…</MadCap:xref>` — same href format as the regular Insert command. Your original selection text is kept as the inner text of the tag in the source file, but **MadCap Flare replaces it with the target topic's first `<h1>` at build time**, so the link text you typed is not what readers will see in the built output. Pick the target topic that matches your prose, not the wording.
 
-Faster path: in the middle of writing prose, type `[[`. The completion popup opens the same topic picker; accepting an item erases the `[[` and inserts the full `<MadCap:xref>` tag, with the topic's `<h1>` prefilled as the link text.
+Faster path: in the middle of writing prose, type `[[`. The completion popup opens the same topic picker; accepting an item erases the `[[` and inserts the full `<MadCap:xref>` tag.
 
 ### Insert an existing snippet into a topic
 

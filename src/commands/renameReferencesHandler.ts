@@ -14,6 +14,10 @@ import {
   rewriteReferencePath,
   splitHash
 } from "./renameReferencesHelpers";
+import {
+  expandIfDirectoryRename,
+  pruneExpired
+} from "./renameReferencesEventHelpers";
 
 const SKIP_DIRECTORIES = new Set([
   "Output",
@@ -113,9 +117,20 @@ interface QuickPickReferenceItem extends vscode.QuickPickItem {
  * file is renamed inside VS Code, scan the project for references that point
  * at the old path and offer to rewrite them.
  *
- * Folder renames are flattened by the API into a list of file renames, so
- * the same code path serves both. The picker is only shown if the scan
- * finds at least one reference; silent no-op when there's nothing to update.
+ * Three event sources are wired up because VS Code's Explorer doesn't
+ * always surface the same kind of event for the same kind of operation:
+ *   1. `onDidRenameFiles` — covers F2 / right-click rename and most
+ *      drag-drop moves of regular files.
+ *   2. Folder renames — fired by `onDidRenameFiles` with a folder URI
+ *      rather than per-file. We expand them by walking the new directory
+ *      so the scanner sees one rename per contained file.
+ *   3. `onDidCreateFiles` + `onDidDeleteFiles` — drag-drop within the
+ *      Explorer (especially when the user drags a file across panes or
+ *      between sub-folders) sometimes lands as a delete-then-create pair
+ *      instead of a rename event. We pair them up by basename inside a
+ *      short window and feed the result through the same scanner. The
+ *      `processedRenames` set acts as a deduplication guard so a real
+ *      rename event isn't double-counted by the fallback.
  *
  * Also registers `flare.findStaleReferences` for the manual case where the
  * rename happened outside VS Code and the in-IDE event was missed.
@@ -123,27 +138,29 @@ interface QuickPickReferenceItem extends vscode.QuickPickItem {
 export function registerRenameReferencesHandler(
   projectResolver: FlareProjectResolver
 ): vscode.Disposable {
-  const renameDisposable = vscode.workspace.onDidRenameFiles(async (event) => {
-    // Snapshot tabs at the very start of the rename event handler, before
-    // any document loading happens. The helper later uses this set to
-    // decide which tabs to close — without an early snapshot, any tab
-    // surfaced by the rename's own openTextDocument calls would end up
-    // wrongly classified as "user already had it open".
-    const tabsBeforeRename = captureOpenTabPaths();
+  // Cache of recently deleted files keyed by basename. The drag-drop
+  // fallback consults this when a creation event arrives so it can pair
+  // a paste with a same-basename delete that happened a moment earlier.
+  // Entries time out after `DRAG_DROP_PAIRING_WINDOW_MS` so a delete that
+  // never gets a matching create doesn't sit in memory forever.
+  const recentlyDeleted = new Map<string, { fsPath: string; expiresAt: number }[]>();
+  // Tracks `oldPath|newPath` pairs the rename pipeline already processed
+  // in the current event loop tick so the create+delete fallback can skip
+  // them when both event sources fire for the same operation.
+  const processedRenames = new Set<string>();
 
-    const renames: FileRename[] = [];
-    for (const { oldUri, newUri } of event.files) {
-      if (oldUri.scheme !== "file" || newUri.scheme !== "file") {
-        continue;
-      }
-      if (isRenameTriggerFile(oldUri.fsPath)) {
-        renames.push({ oldPath: oldUri.fsPath, newPath: newUri.fsPath });
-      }
-    }
+  const dispatchRenames = async (
+    renames: FileRename[],
+    tabsBeforeRename: Set<string>
+  ): Promise<void> => {
     if (renames.length === 0) {
       return;
     }
-
+    // Mark every rename as processed so the create/delete fallback (which
+    // runs out of band) skips work the rename pipeline already covered.
+    for (const rename of renames) {
+      processedRenames.add(`${rename.oldPath}|${rename.newPath}`);
+    }
     // Group renames by the project they belong to so we can scan each
     // project at most once.
     const byProject = new Map<string, { context: FlareProjectContext; renames: FileRename[] }>();
@@ -174,6 +191,107 @@ export function registerRenameReferencesHandler(
         logError("Rename references scan failed", error);
       }
     }
+
+    // Clear processed entries on the next tick — the create+delete
+    // fallback fires synchronously after the rename event so we only
+    // need to suppress one tick of duplicate work.
+    setTimeout(() => {
+      for (const rename of renames) {
+        processedRenames.delete(`${rename.oldPath}|${rename.newPath}`);
+      }
+    }, DRAG_DROP_PAIRING_WINDOW_MS);
+  };
+
+  const renameDisposable = vscode.workspace.onDidRenameFiles(async (event) => {
+    // Snapshot tabs at the very start of the rename event handler, before
+    // any document loading happens. The helper later uses this set to
+    // decide which tabs to close — without an early snapshot, any tab
+    // surfaced by the rename's own openTextDocument calls would end up
+    // wrongly classified as "user already had it open".
+    const tabsBeforeRename = captureOpenTabPaths();
+
+    const renames: FileRename[] = [];
+    for (const { oldUri, newUri } of event.files) {
+      if (oldUri.scheme !== "file" || newUri.scheme !== "file") {
+        continue;
+      }
+      // Folders never carry a recognized "trigger" extension, so the
+      // legacy single-file path skips them entirely. When the rename
+      // event hands us a directory, walk the new directory and emit one
+      // rename per contained file. Without this, an Explorer folder
+      // rename leaves every cross-folder reference broken.
+      const expanded = await expandIfDirectoryRename(oldUri.fsPath, newUri.fsPath);
+      if (expanded.length > 0) {
+        for (const child of expanded) {
+          if (isRenameTriggerFile(child.oldPath)) {
+            renames.push(child);
+          }
+        }
+        continue;
+      }
+      if (isRenameTriggerFile(oldUri.fsPath)) {
+        renames.push({ oldPath: oldUri.fsPath, newPath: newUri.fsPath });
+      }
+    }
+    if (renames.length === 0) {
+      return;
+    }
+    await dispatchRenames(renames, tabsBeforeRename);
+    return;
+  });
+
+  // Drag-and-drop fallback. VS Code's Explorer occasionally lowers a
+  // drag-drop into a delete-then-create pair instead of a rename, in
+  // which case `onDidRenameFiles` never fires. We pair up the two events
+  // by basename inside a short window and synthesize a `FileRename` so
+  // the same scan + picker pipeline runs.
+  const deleteDisposable = vscode.workspace.onDidDeleteFiles((event) => {
+    const expiresAt = Date.now() + DRAG_DROP_PAIRING_WINDOW_MS;
+    for (const uri of event.files) {
+      if (uri.scheme !== "file") {
+        continue;
+      }
+      const base = path.basename(uri.fsPath).toLowerCase();
+      const list = recentlyDeleted.get(base) ?? [];
+      list.push({ fsPath: uri.fsPath, expiresAt });
+      recentlyDeleted.set(base, list);
+    }
+    // Drop expired entries opportunistically so the map never grows
+    // without bound during a session of heavy editing.
+    pruneExpired(recentlyDeleted);
+  });
+
+  const createDisposable = vscode.workspace.onDidCreateFiles(async (event) => {
+    pruneExpired(recentlyDeleted);
+    const tabsBeforeRename = captureOpenTabPaths();
+    const renames: FileRename[] = [];
+    for (const uri of event.files) {
+      if (uri.scheme !== "file") {
+        continue;
+      }
+      const base = path.basename(uri.fsPath).toLowerCase();
+      const candidates = recentlyDeleted.get(base);
+      if (!candidates || candidates.length === 0) {
+        continue;
+      }
+      const match = candidates.shift()!;
+      if (candidates.length === 0) {
+        recentlyDeleted.delete(base);
+      }
+      const key = `${match.fsPath}|${uri.fsPath}`;
+      if (processedRenames.has(key)) {
+        // The rename pipeline already handled this pair in the same
+        // tick — don't run the scanner twice.
+        continue;
+      }
+      if (isRenameTriggerFile(uri.fsPath)) {
+        renames.push({ oldPath: match.fsPath, newPath: uri.fsPath });
+      }
+    }
+    if (renames.length === 0) {
+      return;
+    }
+    await dispatchRenames(renames, tabsBeforeRename);
   });
 
   const findStaleDisposable = vscode.commands.registerCommand(
@@ -233,8 +351,22 @@ export function registerRenameReferencesHandler(
     }
   );
 
-  return vscode.Disposable.from(renameDisposable, findStaleDisposable);
+  return vscode.Disposable.from(
+    renameDisposable,
+    deleteDisposable,
+    createDisposable,
+    findStaleDisposable
+  );
 }
+
+/**
+ * Time window inside which a delete event followed by a create event with
+ * the same basename is treated as a single drag-drop move. Empirically the
+ * Explorer fires the two events back-to-back inside the same tick, but a
+ * generous window keeps the heuristic robust against debounced filesystem
+ * watchers and slow disk I/O without producing spurious matches.
+ */
+const DRAG_DROP_PAIRING_WINDOW_MS = 1500;
 
 async function scanForRenames(
   projectRoot: string,
