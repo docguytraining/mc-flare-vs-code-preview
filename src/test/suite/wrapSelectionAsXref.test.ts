@@ -48,16 +48,26 @@ suite("WrapSelectionAsXrefProvider", () => {
 suite("XrefSnippetCompletionProvider", () => {
   const provider = new XrefSnippetCompletionProvider();
 
-  test("returns three keyword snippets for a Flare topic", async () => {
+  test("returns the full keyword snippet set for a Flare topic", async () => {
     const doc = await openHtmTopic("<p>scaffolding</p>");
     const items = provider.provideCompletionItems(doc);
     assert.ok(items);
     const labels = items!.map((item) => item.label);
-    assert.deepStrictEqual(labels.sort(), ["cblock", "cond", "xref"]);
+    assert.deepStrictEqual(
+      labels.sort(),
+      ["cblock", "cond", "snip", "snipblock", "xref"]
+    );
     const xref = items!.find((item) => item.label === "xref")!;
-    const snippetValue = (xref.insertText as vscode.SnippetString).value;
-    assert.match(snippetValue, /<MadCap:xref href="\$1">/);
-    assert.match(snippetValue, /<\/MadCap:xref>/);
+    const xrefSnippet = (xref.insertText as vscode.SnippetString).value;
+    assert.match(xrefSnippet, /<MadCap:xref href="\$1">/);
+    assert.match(xrefSnippet, /<\/MadCap:xref>/);
+    const snip = items!.find((item) => item.label === "snip")!;
+    assert.match((snip.insertText as vscode.SnippetString).value, /<MadCap:snippet src="\$1" \/>/);
+    const snipblock = items!.find((item) => item.label === "snipblock")!;
+    assert.match(
+      (snipblock.insertText as vscode.SnippetString).value,
+      /<MadCap:snippetBlock src="\$1" \/>/
+    );
   });
 
   test("returns no completions for a non-Flare document", async () => {

@@ -57,7 +57,8 @@ suite("ExtractSnippetCodeActionProvider", () => {
 
   test("offers an extract action for a balanced multi-line selection", async () => {
     const doc = await openHtmTopic("<body>\n  <p>Hello</p>\n  <p>World</p>\n</body>");
-    const range = new vscode.Range(new vscode.Position(1, 2), new vscode.Position(2, 13));
+    // End column 14 includes the final `>` of `</p>` so the selection is balanced.
+    const range = new vscode.Range(new vscode.Position(1, 2), new vscode.Position(2, 14));
     const result = provider.provideCodeActions(doc, range);
     assert.ok(result);
     assert.strictEqual(result!.length, 1);

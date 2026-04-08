@@ -43,11 +43,20 @@ export class AddConditionCodeActionProvider implements vscode.CodeActionProvider
 }
 
 /**
- * Finds the opening tag (`<tagName ...>`) that contains the given position
- * and returns its full range plus the value of any existing
- * `MadCap:conditions=` attribute. Returns `undefined` when the cursor is not
- * inside an opening tag — most notably when sitting in text content or
- * inside a closing tag.
+ * Finds the opening tag of the element that encloses the given position and
+ * returns its full range plus the value of any existing `MadCap:conditions=`
+ * attribute.
+ *
+ * Two cases are handled:
+ *
+ *  1. The cursor sits literally inside an opening tag (between its `<` and
+ *     `>`). That tag is returned directly.
+ *  2. The cursor sits in text content (the common case). A linear scan
+ *     maintains an element stack and returns the deepest open element at the
+ *     cursor position.
+ *
+ * Returns `undefined` for cursors inside closing tags, comments, processing
+ * instructions, CDATA, or text content with no enclosing element.
  */
 export function findEnclosingOpeningTag(
   document: vscode.TextDocument,
@@ -60,52 +69,109 @@ export function findEnclosingOpeningTag(
   | undefined {
   const text = document.getText();
   const offset = document.offsetAt(position);
-  // Walk backwards from `offset` looking for an unmatched `<`.
-  let i = offset;
-  while (i > 0) {
-    const ch = text.charAt(i - 1);
-    if (ch === ">") {
+
+  // Tokenize HTML into tags. The order of alternatives matters: comment /
+  // CDATA / PI must come before the generic open / close tag patterns so we
+  // never misread `<!-- ... -->` as an element.
+  const tokenRegex =
+    /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<\/([A-Za-z][\w:.-]*)\s*>|<([A-Za-z][\w:.-]*)\b[^>]*?(\/?)>/g;
+
+  const stack: { name: string; start: number; end: number; text: string }[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = tokenRegex.exec(text)) !== null) {
+    const tagStart = match.index;
+    const tagEnd = tagStart + match[0].length;
+
+    // Cursor sits strictly inside this token (between `<` and `>`).
+    if (offset > tagStart && offset < tagEnd) {
+      if (
+        match[0].startsWith("<!--") ||
+        match[0].startsWith("<![") ||
+        match[0].startsWith("<?")
+      ) {
+        return undefined;
+      }
+      if (match[1]) {
+        // Closing tag — `</p>` is not an element we can attach a condition to.
+        return undefined;
+      }
+      if (match[2]) {
+        return buildResult(document, tagStart, tagEnd, match[0]);
+      }
       return undefined;
     }
-    if (ch === "<") {
+
+    // Update the element stack only for tokens that end at or before the
+    // cursor — anything past it is irrelevant.
+    if (tagEnd <= offset) {
+      if (
+        !match[0].startsWith("<!--") &&
+        !match[0].startsWith("<![") &&
+        !match[0].startsWith("<?")
+      ) {
+        if (match[1]) {
+          const name = match[1].toLowerCase();
+          for (let i = stack.length - 1; i >= 0; i -= 1) {
+            if (stack[i].name === name) {
+              stack.splice(i);
+              break;
+            }
+          }
+        } else if (match[2]) {
+          const name = match[2].toLowerCase();
+          const isSelfClosing = match[3] === "/" || isVoidElement(name);
+          if (!isSelfClosing) {
+            stack.push({ name, start: tagStart, end: tagEnd, text: match[0] });
+          }
+        }
+      }
+    }
+
+    if (tagStart >= offset) {
       break;
     }
-    i -= 1;
   }
-  if (i === 0 && text.charAt(0) !== "<") {
+
+  // Cursor is in text content. The deepest unclosed element wins.
+  if (stack.length === 0) {
     return undefined;
   }
-  const start = i - 1;
-  // Walk forwards from `offset` looking for the next `>`.
-  let j = offset;
-  while (j < text.length && text.charAt(j) !== ">") {
-    j += 1;
-  }
-  if (j >= text.length) {
-    return undefined;
-  }
-  const tagText = text.slice(start, j + 1);
-  // Reject closing tags (`</…>`) and comments (`<!--`).
-  if (tagText.startsWith("</") || tagText.startsWith("<!")) {
-    return undefined;
-  }
-  // Reject XML processing instructions and CDATA.
-  if (tagText.startsWith("<?") || tagText.startsWith("<![")) {
-    return undefined;
-  }
-  // Must look like a real tag (`<` followed by an identifier character).
-  if (!/^<[A-Za-z]/.test(tagText)) {
-    return undefined;
-  }
+  const top = stack[stack.length - 1];
+  return buildResult(document, top.start, top.end, top.text);
+}
+
+function buildResult(
+  document: vscode.TextDocument,
+  start: number,
+  end: number,
+  tagText: string
+): { tagRange: vscode.Range; existingConditions: string | undefined } {
   const conditionsMatch = tagText.match(
     /\bMadCap:conditions\s*=\s*(["'])([^"']*)\1/i
   );
   return {
     tagRange: new vscode.Range(
       document.positionAt(start),
-      document.positionAt(j + 1)
+      document.positionAt(end)
     ),
     existingConditions: conditionsMatch ? conditionsMatch[2] : undefined
   };
 }
 
+function isVoidElement(name: string): boolean {
+  return new Set([
+    "br",
+    "hr",
+    "img",
+    "input",
+    "meta",
+    "link",
+    "area",
+    "base",
+    "col",
+    "embed",
+    "source",
+    "track",
+    "wbr"
+  ]).has(name);
+}
