@@ -15,7 +15,7 @@ import { ConditionGutterDecorations } from "./diagnostics/conditionGutterDecorat
 import { ConditionCompletionProvider } from "./language/conditionCompletionProvider";
 import { ConditionAttributeCompletionProvider } from "./language/conditionAttributeCompletionProvider";
 import { AddConditionCodeActionProvider } from "./language/addConditionCodeActionProvider";
-import { registerAddConditionCommand } from "./commands/addConditionCommand";
+import { registerAddConditionCommand, registerWrapSelectionWithConditionCommand } from "./commands/addConditionCommand";
 import { registerRenameReferencesHandler } from "./commands/renameReferencesHandler";
 import { registerRenameConditionTagCommand } from "./commands/renameConditionTagCommand";
 import { registerValidateAllTopicsCommand } from "./commands/validateAllTopicsCommand";
@@ -250,7 +250,24 @@ export function activate(context: vscode.ExtensionContext): void {
     const conditionExpression = parseTargetExpression(activeTarget?.expression);
     const showConditionBadges = vscode.workspace
       .getConfiguration("flareToolkit")
-      .get<boolean>("showConditionBadges", false);
+      .get<boolean>("showConditionBadges", true);
+
+    // Build a qualifiedName → hex-color map from the project's .flcts index so
+    // the transform pipeline can tint each condition pill with the author's
+    // chosen swatch. Falls back to an empty map when no project is open.
+    let conditionColors = new Map<string, string>();
+    if (projectContext) {
+      try {
+        const tagDefs = await conditionTagIndex.getEntries(projectContext);
+        for (const def of tagDefs) {
+          if (def.color) {
+            conditionColors.set(def.qualifiedName, def.color);
+          }
+        }
+      } catch (error) {
+        logError("Condition color lookup failed", error);
+      }
+    }
 
     const collectedConditions = {
       elementConditionCounts: new Map<string, number>(),
@@ -269,6 +286,7 @@ export function activate(context: vscode.ExtensionContext): void {
         currentDocument: document.uri,
         conditionExpression,
         showConditionBadges,
+        conditionColors,
         collectedConditions
       });
     } catch (error) {
@@ -661,6 +679,11 @@ export function activate(context: vscode.ExtensionContext): void {
     conditionTagIndex
   );
 
+  const wrapSelectionWithConditionRegistration = registerWrapSelectionWithConditionCommand(
+    projectResolver,
+    conditionTagIndex
+  );
+
   const pickPreviewTargetRegistration = vscode.commands.registerCommand(
     "flare.pickPreviewTarget",
     async (resource?: vscode.Uri) => {
@@ -857,6 +880,7 @@ export function activate(context: vscode.ExtensionContext): void {
     conditionAttributeCompletionRegistration,
     addConditionCodeActionRegistration,
     addConditionCommandRegistration,
+    wrapSelectionWithConditionRegistration,
     codeActionRegistration,
     insertXrefRegistration,
     wrapSelectionAsXrefRegistration,

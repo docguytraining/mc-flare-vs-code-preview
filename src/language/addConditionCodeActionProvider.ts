@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { isFlareDocument } from "../core/fileTypeHelpers";
+import { hasBalancedTags } from "./extractSnippetCodeActionProvider";
 
 const COMMAND = "flare.addConditionToElement";
+const WRAP_COMMAND = "flare.wrapSelectionWithCondition";
 
 /**
  * Code action that surfaces an "Add condition…" refactor on any opening tag in
@@ -25,20 +27,46 @@ export class AddConditionCodeActionProvider implements vscode.CodeActionProvider
     if (!isFlareDocument(document)) {
       return undefined;
     }
-    const tagInfo = findEnclosingOpeningTag(document, range.start);
-    if (!tagInfo) {
-      return undefined;
+
+    const actions: vscode.CodeAction[] = [];
+
+    // Non-empty selection with balanced markup: offer inline wrap as the
+    // preferred action so authors can gate just the highlighted text in a
+    // <MadCap:conditionalText> without touching the enclosing element.
+    if (!range.isEmpty) {
+      const selectionText = document.getText(range);
+      if (selectionText.trim().length > 0 && hasBalancedTags(selectionText)) {
+        const wrapAction = new vscode.CodeAction(
+          "Wrap selection in conditional text…",
+          vscode.CodeActionKind.RefactorRewrite
+        );
+        wrapAction.command = {
+          command: WRAP_COMMAND,
+          title: "Wrap selection in conditional text…",
+          arguments: [document.uri, range]
+        };
+        wrapAction.isPreferred = true;
+        actions.push(wrapAction);
+      }
     }
-    const action = new vscode.CodeAction(
-      "Add Condition to Element…",
-      vscode.CodeActionKind.RefactorRewrite
-    );
-    action.command = {
-      command: COMMAND,
-      title: "Add Condition to Element…",
-      arguments: [document.uri, tagInfo.tagRange, tagInfo.existingConditions]
-    };
-    return [action];
+
+    // Always surface the element-level action when the cursor sits inside or
+    // directly on an opening tag.
+    const tagInfo = findEnclosingOpeningTag(document, range.start);
+    if (tagInfo) {
+      const elementAction = new vscode.CodeAction(
+        "Add condition to element…",
+        vscode.CodeActionKind.RefactorRewrite
+      );
+      elementAction.command = {
+        command: COMMAND,
+        title: "Add condition to element…",
+        arguments: [document.uri, tagInfo.tagRange, tagInfo.existingConditions]
+      };
+      actions.push(elementAction);
+    }
+
+    return actions.length > 0 ? actions : undefined;
   }
 }
 

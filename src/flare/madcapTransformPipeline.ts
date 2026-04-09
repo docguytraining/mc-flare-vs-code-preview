@@ -12,6 +12,9 @@ export interface TransformContext {
   currentDocument: vscode.Uri;
   conditionExpression?: ConditionExpression;
   showConditionBadges?: boolean;
+  /** Maps qualified condition tag names to their hex background colors from
+   *  the project's .flcts files, used to tint inline pill badges. */
+  conditionColors?: Map<string, string>;
   collectedConditions?: {
     elementConditionCounts: Map<string, number>;
     snippetConditionCounts: Map<string, number>;
@@ -114,7 +117,8 @@ const conditionalTransformHandler: TransformHandler = {
     const expression = transformContext.conditionExpression ?? alwaysRender();
     const result = applyConditions(htmlContent, {
       expression,
-      showBadges: transformContext.showConditionBadges ?? false
+      showBadges: transformContext.showConditionBadges ?? false,
+      conditionColors: transformContext.conditionColors
     });
     if (transformContext.collectedConditions) {
       transformContext.collectedConditions.elementConditionCounts =
@@ -210,9 +214,16 @@ const metadataDropHandler: TransformHandler = {
       (_full, body: string) => body
     );
     transformed = transformed.replace(ANNOTATION_SELF_CLOSING_REGEX, "");
+    // If applyConditions injected a `style` attribute (e.g. a background-color
+    // tint) onto the conditionalText wrapper, preserve it as a <span> so the
+    // tint survives unwrapping. Without a style attribute the tag is pure
+    // scaffolding and can be dropped entirely.
     transformed = transformed.replace(
       CONDITIONAL_TEXT_REGEX,
-      (_full, body: string) => body
+      (full, body: string) => {
+        const styleMatch = /\bstyle\s*=\s*(["'])([^"']*)\1/i.exec(full);
+        return styleMatch ? `<span style="${styleMatch[2]}">${body}</span>` : body;
+      }
     );
     transformed = transformed.replace(CONDITIONAL_TEXT_SELF_CLOSING_REGEX, "");
     transformed = transformed.replace(CONCEPT_REGEX, "");
@@ -632,7 +643,8 @@ async function loadSnippet(
     const expression = parseTargetExpression(conditionExpression);
     const result = applyConditions(processed, {
       expression,
-      showBadges: context.showConditionBadges ?? false
+      showBadges: context.showConditionBadges ?? false,
+      conditionColors: context.conditionColors
     });
     processed = result.html;
   }

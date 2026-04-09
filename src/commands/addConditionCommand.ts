@@ -81,6 +81,74 @@ export function registerAddConditionCommand(
 }
 
 /**
+ * Registers `flare.wrapSelectionWithCondition`. Shows the project-wide
+ * condition picker and wraps the given selection range in a
+ * `<MadCap:conditionalText MadCap:conditions="…">…</MadCap:conditionalText>`
+ * element — the inline counterpart to `MadCap:conditionalBlock` — so authors
+ * can gate individual words or phrases without touching the enclosing element.
+ *
+ * Backed by the "Wrap selection in conditional text…" code action in
+ * `AddConditionCodeActionProvider`.
+ */
+export function registerWrapSelectionWithConditionCommand(
+  projectResolver: FlareProjectResolver,
+  conditionTagIndex: ConditionTagIndex
+): vscode.Disposable {
+  return vscode.commands.registerCommand(
+    "flare.wrapSelectionWithCondition",
+    async (uri?: vscode.Uri, selectionRange?: vscode.Range) => {
+      if (!uri || !selectionRange) {
+        return;
+      }
+      let document: vscode.TextDocument;
+      try {
+        document = await vscode.workspace.openTextDocument(uri);
+      } catch {
+        return;
+      }
+      const projectContext = await projectResolver
+        .resolveForFile(document.uri)
+        .catch(() => undefined);
+      if (!projectContext) {
+        vscode.window.showWarningMessage(
+          "Flare: cannot add a condition because no .flprj project was found above this topic."
+        );
+        return;
+      }
+      const tags = await conditionTagIndex.getEntries(projectContext);
+      if (tags.length === 0) {
+        vscode.window.showInformationMessage(
+          "Flare: no condition tags are defined in this project."
+        );
+        return;
+      }
+
+      const items = tags.map((tag) => ({
+        label: tag.qualifiedName,
+        description: tag.description ?? `Defined in ${tag.setName}.flcts`,
+        picked: false
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
+        title: "Wrap selection in MadCap:conditionalText",
+        placeHolder: "Pick the tag(s) that should gate this text",
+        canPickMany: true
+      });
+      if (!picked || picked.length === 0) {
+        return;
+      }
+
+      const conditionValue = picked.map((p) => p.label).join(",");
+      const selectedText = document.getText(selectionRange);
+      const wrapped = `<MadCap:conditionalText MadCap:conditions="${conditionValue}">${selectedText}</MadCap:conditionalText>`;
+
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(document.uri, selectionRange, wrapped);
+      await vscode.workspace.applyEdit(edit);
+    }
+  );
+}
+
+/**
  * Splits a `MadCap:conditions=` value into individual tokens. Flare accepts
  * both comma- and semicolon-delimited lists; we mirror that here.
  */

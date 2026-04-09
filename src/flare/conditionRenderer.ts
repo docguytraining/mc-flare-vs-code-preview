@@ -27,6 +27,10 @@ export interface ConditionRenderResult {
 export interface ApplyConditionsOptions {
   expression?: ConditionExpression;
   showBadges?: boolean;
+  /** Maps qualified condition tag names (e.g. "Default.PrintOnly") to their
+   *  hex background colors from the project's .flcts files. Used to tint the
+   *  pill badge with the author's chosen swatch while keeping text legible. */
+  conditionColors?: Map<string, string>;
 }
 
 const VOID_ELEMENTS = new Set([
@@ -64,6 +68,7 @@ export function applyConditions(
 ): ConditionRenderResult {
   const expression = options.expression ?? alwaysRender();
   const showBadges = options.showBadges ?? false;
+  const conditionColors = options.conditionColors;
 
   const elementConditionCounts = new Map<string, number>();
   const snippetConditionCounts = new Map<string, number>();
@@ -173,13 +178,24 @@ export function applyConditions(
       continue;
     }
 
-    // Strip the MadCap:conditions= attribute from the rendered tag and
-    // optionally inject a badge for visibility.
-    const cleanedTag = tagText.replace(CONDITIONS_ATTR_REGEX, "");
+    // Strip the MadCap:conditions= attribute from the rendered tag, then
+    // optionally tint the element's background and inject a pill badge.
+    let cleanedTag = tagText.replace(CONDITIONS_ATTR_REGEX, "");
+
+    if (showBadges && !isSelfClosing && conditionColors) {
+      for (const tag of tagList) {
+        const bg = conditionColors.get(tag);
+        if (bg) {
+          cleanedTag = injectStyleAttribute(cleanedTag, `background-color:${hexToRgba(bg, 0.15)}`);
+          break;
+        }
+      }
+    }
+
     output += cleanedTag;
 
     if (showBadges && !isSelfClosing) {
-      output += renderBadge(tagList);
+      output += renderBadge(tagList, conditionColors);
     }
 
     cursor = tagEnd + 1;
@@ -274,15 +290,73 @@ function findMatchingCloseTag(
   return -1;
 }
 
-function renderBadge(tagList: readonly string[]): string {
+/**
+ * Converts a hex color (#RGB or #RRGGBB) to an `rgba(r, g, b, alpha)` string.
+ * Returns a transparent fallback for unrecognised formats.
+ */
+function hexToRgba(hex: string, alpha: number): string {
+  const cleaned = hex.replace(/^#/, "");
+  let r: number, g: number, b: number;
+  if (cleaned.length === 3) {
+    r = parseInt(cleaned[0] + cleaned[0], 16);
+    g = parseInt(cleaned[1] + cleaned[1], 16);
+    b = parseInt(cleaned[2] + cleaned[2], 16);
+  } else if (cleaned.length === 6) {
+    r = parseInt(cleaned.slice(0, 2), 16);
+    g = parseInt(cleaned.slice(2, 4), 16);
+    b = parseInt(cleaned.slice(4, 6), 16);
+  } else {
+    return `rgba(0,0,0,0)`;
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/**
+ * Injects `declaration` into the opening tag's `style` attribute. If the tag
+ * already has a `style` attribute the declaration is appended (`;` separated).
+ * If not, a new `style="…"` attribute is inserted immediately after the tag name.
+ */
+function injectStyleAttribute(tagText: string, declaration: string): string {
+  const existingStyle = /\bstyle\s*=\s*(["'])([^"']*)\1/i;
+  if (existingStyle.test(tagText)) {
+    return tagText.replace(existingStyle, (_full, quote, value) => {
+      const sep = value.trimEnd().endsWith(";") ? "" : ";";
+      return `style=${quote}${value}${sep}${declaration}${quote}`;
+    });
+  }
+  // Insert after `<tagName`.
+  const tagNameMatch = tagText.match(/^<([A-Za-z][\w:.-]*)/);
+  if (!tagNameMatch) {
+    return tagText;
+  }
+  const insertAt = 1 + tagNameMatch[1].length;
+  return `${tagText.slice(0, insertAt)} style="${declaration}"${tagText.slice(insertAt)}`;
+}
+
+/**
+ * Renders one pill badge per condition tag. Each pill uses a white background
+ * with a thick colored border so the condition color is always visible and the
+ * text is always readable (black on white = 21:1 contrast). When a tag has no
+ * color in the project's .flcts files the CSS fallback style applies.
+ *
+ * Multiple conditions on one element produce side-by-side pills, each with its
+ * own color, so authors can distinguish them at a glance.
+ */
+function renderBadge(tagList: readonly string[], conditionColors?: Map<string, string>): string {
   if (tagList.length === 0) {
     return "";
   }
-  const label = tagList.join(", ");
-  return `<span class="madcap-condition-badge" title="MadCap:conditions=${escapeHtml(
-    label
-  )}">${escapeHtml(label)}</span>`;
+  return tagList
+    .map((tag) => {
+      const escapedTag = escapeHtml(tag);
+      const color = conditionColors?.get(tag);
+      const styleAttr = color
+        ? ` style="background:${hexToRgba(color, 0.15)};border-color:${escapeHtml(color)}"` : "";
+      return `<span class="madcap-condition-badge"${styleAttr} title="MadCap:conditions=${escapedTag}">${escapedTag}</span>`;
+    })
+    .join("");
 }
+
 
 function escapeHtml(value: string): string {
   return value

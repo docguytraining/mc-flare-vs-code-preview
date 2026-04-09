@@ -110,6 +110,12 @@
         "enablement": "false"
       },
       {
+        "command": "flare.wrapSelectionWithCondition",
+        "title": "Wrap Selection in Conditional Text…",
+        "category": "Flare Toolkit",
+        "enablement": "false"
+      },
+      {
         "command": "flare.insertSnippet",
         "title": "Insert Snippet",
         "category": "Flare Toolkit"
@@ -217,7 +223,7 @@
         },
         "flareToolkit.showConditionBadges": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show a small pill badge inside every conditional element in the preview, listing the MadCap:conditions tags that gate it."
         },
         "flareToolkit.showConditionGutter": {

@@ -493,13 +493,13 @@ button.flare-condition-row code {
   padding: 1px 6px;
   margin: 0 0 0 4px;
   font-size: 0.7em;
+  font-weight: 600;
   border-radius: 999px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-  opacity: 0.55;
+  /* Fixed white + black so the pill is always readable regardless of the
+     VS Code theme. The inline style="border-color:…" from renderBadge
+     stamps the condition's swatch color onto the border only. */
+  background: #ffffff;
+  border: 2px solid #888888;
+  color: #000000;
   vertical-align: middle;
-}
-
-.madcap-condition-badge:hover {
-  opacity: 1;
 }
