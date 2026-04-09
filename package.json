@@ -47,7 +47,8 @@
         "command": "flare.previewHtml",
         "title": "Live Preview",
         "shortTitle": "Live Preview",
-        "category": "Flare Toolkit"
+        "category": "Flare Toolkit",
+        "icon": "media/icon.svg"
       },
       {
         "command": "flare.insertXref",
@@ -149,7 +150,7 @@
       "editor/title": [
         {
           "command": "flare.previewHtml",
-          "when": "resourceExtname == .htm || resourceExtname == .html",
+          "when": "(resourceExtname == .htm || resourceExtname == .html) && flareToolkit.projectDetected",
           "group": "navigation@1"
         }
       ],

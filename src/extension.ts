@@ -920,6 +920,31 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }
   );
+
+  // Keep the editor-title icon visible only when the active document belongs
+  // to a Flare project. We update the context key on every editor switch so
+  // the button appears / disappears as authors move between files.
+  const updateFlareProjectContext = async (document: vscode.TextDocument | undefined): Promise<void> => {
+    if (!document || !isFlareHtmlDocument(document)) {
+      await vscode.commands.executeCommand("setContext", "flareToolkit.projectDetected", false);
+      return;
+    }
+    const projectContext = await projectResolver.resolveForFile(document.uri).catch(() => undefined);
+    await vscode.commands.executeCommand(
+      "setContext",
+      "flareToolkit.projectDetected",
+      projectContext !== undefined
+    );
+  };
+
+  const onDidChangeActiveEditor = vscode.window.onDidChangeActiveTextEditor((editor) => {
+    void updateFlareProjectContext(editor?.document);
+  });
+
+  context.subscriptions.push(onDidChangeActiveEditor);
+
+  // Run once for whatever is already open when the extension activates.
+  void updateFlareProjectContext(vscode.window.activeTextEditor?.document);
 }
 
 export function deactivate(): void {
