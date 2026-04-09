@@ -54,10 +54,11 @@ VS Code's built-in HTML preview doesn't understand any of Flare's proprietary ta
 - **Condition tag set index** — every `.flcts` file under `Project/ConditionTagSets` is parsed and indexed by qualified `<setName>.<tagName>`. Color and comment metadata are surfaced in completion documentation.
 - **Target-aware preview** — the transform pipeline parses `MadCap:conditions=` on every element and hides anything the active target's expression excludes. Supports `include[A or B]`, `exclude[A and B]`, nested grouping, and `AND` between top-level clauses.
 - **Target picker** — a "Target" label and "Change…" button appear in the preview header. Picking a target persists per project root in `.vscode/flare-preview.json`. The list always includes a synthetic *Show everything* (default) and *(Project default)* entry.
-- **Condition badges** *(opt-in)* — turn on `flareToolkit.showConditionBadges` to inject a small `madcap-condition-badge` pill inside every conditional element so you can see at a glance which tag gates each block.
+- **Condition badges** *(on by default)* — every conditional element gets one tinted pill per `MadCap:conditions` tag, side by side, with a 2px border in the tag's `BackgroundColor` from the matching `.flcts` entry. Multiple conditions on one element produce multiple pills so you can distinguish them at a glance. The conditioned element itself also gets a faint background tint matching the first tag's color so the gated region is visually distinguishable, not just the badge. Flip `flareToolkit.showConditionBadges` to `false` if you'd rather author against an unannotated preview.
 - **Condition autocomplete** — typing inside `MadCap:conditions="…"` or `MadCap:conditionTagExpression="…"` opens a completion list of every qualified condition tag in the project. Each entry shows a small color swatch matching the tag's `BackgroundColor`, and accepting one re-triggers IntelliSense so you can chain a comma and pick the next tag without retyping anything.
 - **Condition attribute-name completion** — inside any opening tag, typing a space surfaces `MadCap:conditions=""` and `MadCap:conditionTagExpression=""` as completion items. Accepting one drops the cursor between the quotes and immediately fires the value picker above.
-- **"Add condition…" code action** — place the cursor anywhere inside an opening tag, click the lightbulb, choose **Add condition…**, and a multi-select quick pick of every project condition tag opens. Pre-checks any tags already on the element; on accept, the toolkit inserts (or extends) `MadCap:conditions="…"` on that tag in a single edit.
+- **"Add condition to element…" code action** — place the cursor anywhere inside an opening tag, click the lightbulb, choose **Add condition to element…**, and a multi-select quick pick of every project condition tag opens. Pre-checks any tags already on the element; on accept, the toolkit inserts (or extends) `MadCap:conditions="…"` on that tag in a single edit.
+- **"Wrap selection in conditional text…" code action** — select an inline run of prose, click the lightbulb, choose **Wrap selection in conditional text…**, and the toolkit opens the same project-wide condition picker and wraps the selection in `<MadCap:conditionalText MadCap:conditions="…">…</MadCap:conditionalText>`. Lets you gate a single word or phrase inside a paragraph without touching the enclosing element. Selections that cut through a tag are rejected so the parent topic stays well-formed. Marked as the preferred action when both this and the element-level action apply.
 - **Condition validation** — unknown `<set>.<tag>` references raise `flare.condition-unresolved` warnings in the Problems panel.
 - **Conditions discovery summary** — the preview's discovery section now lists every unique element-condition tag and snippet-condition tag referenced in the topic, with per-tag occurrence counts and a "hidden by active target" total.
 
@@ -79,7 +80,7 @@ All commands are listed under the **Flare Toolkit** category in the Command Pale
 
 | Command | Palette title | Default keybinding | Where |
 |---|---|---|---|
-| `flare.previewHtml` | **Flare Toolkit: Live Preview** | `Cmd+K P` / `Ctrl+K P` (chord) | Editor title bar (`.htm` / `.html`), Command Palette, Explorer context menu |
+| `flare.previewHtml` | **Flare Toolkit: Live Preview** | `Cmd+K P` / `Ctrl+K P` (chord) | Editor title bar (`.htm` / `.html` files **inside a `.flprj` project**), Command Palette, Explorer context menu |
 | `flare.insertXref` | **Flare Toolkit: Insert Cross-Reference** | — | Command Palette, editor context menu |
 | `flare.pickPreviewTarget` | **Flare Toolkit: Pick Preview Target** | — | Command Palette, "Change…" button in preview header |
 | `flare.validateAllTopics` | **Flare Toolkit: Validate All Topics** | — | Command Palette |
@@ -102,7 +103,7 @@ The `Live Preview` keybinding is a **chord**: press and hold `Cmd` (or `Ctrl` on
 | `flareToolkit.variableReplacementMinLength` | `number` | `4` | Minimum length of a variable value before it is used for literal-match suggestions. |
 | `flareToolkit.suggestionIgnoreVariables` | `string[]` | `[]` | Project-wide ignore list for variables that should never produce literal-match suggestions. Per-topic dismissals live in `.vscode/flare-preview.json` instead. |
 | `flareToolkit.validateLinks` | `boolean` | `true` | Validate local links, images, snippet sources, stylesheets, and MadCap cross-references in Flare topics. |
-| `flareToolkit.showConditionBadges` | `boolean` | `false` | Show a small pill badge inside every conditional element in the preview, listing the `MadCap:conditions` tags that gate it. |
+| `flareToolkit.showConditionBadges` | `boolean` | `true` | Show one tinted pill badge per `MadCap:conditions` tag inside every conditional element in the preview. Each pill's border matches the tag's `BackgroundColor` from the matching `.flcts` entry, and the conditioned element gets a faint background tint in the same color. |
 | `flareToolkit.showConditionGutter` | `boolean` | `true` | Show a colored square in the editor gutter on every line that contains a `MadCap:conditions` or `MadCap:conditionTagExpression` attribute. The square's color comes from the `BackgroundColor` of the matching `.flcts` entry. |
 
 ## Supported MadCap tags
@@ -138,7 +139,7 @@ The `Live Preview` keybinding is a **chord**: press and hold `Cmd` (or `Ctrl` on
 1. Install the toolkit from the VS Code Marketplace.
 2. Open the folder containing your Flare project's `.flprj` file.
 3. Open any `.htm` topic. Variable inlay hints appear immediately; the link validator populates the Problems panel.
-4. Click the **Live Preview** icon in the editor title bar (or run **Flare Toolkit: Live Preview** from the Command Palette) to open the rendered topic in a side panel.
+4. Click the orange Flare icon in the editor title bar (or run **Flare Toolkit: Live Preview** from the Command Palette, or use the `Cmd/Ctrl+K P` chord) to open the rendered topic in a side panel. The title-bar icon only appears when the active topic lives inside a folder containing a `.flprj` file — Command Palette and the keybinding work in any `.htm`/`.html` file.
 5. As you type, the preview refreshes automatically. Save to force an immediate refresh.
 
 ## Walkthroughs
@@ -172,7 +173,7 @@ To verify what each build target will see, use the target picker (next walkthrou
 
 Goal: preview a topic exactly the way a specific build target would render it.
 
-1. Open the topic and run **Flare Toolkit: Live Preview** (or click the **Live Preview** icon in the editor title bar).
+1. Open the topic and run **Flare Toolkit: Live Preview** (or click the orange Flare icon in the editor title bar — visible only when the topic is inside a folder with a `.flprj` file).
 2. In the preview header, find the **Target:** label and click **Change…**.
 3. Pick a target from the quick pick. The list always includes a synthetic *Show everything* (the default — hides nothing) and *(Project default)* (uses the `PreviewConditionalExpression` from your `.flprj`), followed by every real `.fltar` file in `Project/Targets/`.
 4. The preview re-renders. Elements gated by `MadCap:conditions=` are hidden if the picked target's expression excludes their tag list. The Conditions section in the preview tells you how many elements were hidden.
@@ -257,11 +258,22 @@ All four routes resolve to the same XML.
 Goal: gate a paragraph you already wrote on a `Default.Internal` build flag, without typing the attribute by hand.
 
 1. Place the cursor anywhere inside the opening tag of the element you want to gate (e.g. inside `<p class="warn">`).
-2. Click the lightbulb (or press `Ctrl/Cmd+.`) and choose **Add condition…**.
+2. Click the lightbulb (or press `Ctrl/Cmd+.`) and choose **Add condition to element…**.
 3. The toolkit pops a multi-select quick pick listing every condition tag in the project, with any tags already on this element pre-checked. Color swatches make the tags visually distinct.
 4. Pick one or more tags and press Enter. The toolkit either inserts `MadCap:conditions="Default.Internal"` on the tag, or — if the element already had the attribute — appends to its existing value, deduplicating along the way.
 
 Faster path: type `MadCap:` inside the opening tag and the attribute-name completion offers `MadCap:conditions=""`. Accepting it lands the cursor between the quotes and immediately retriggers IntelliSense so you can pick the tag value without an extra keystroke.
+
+### Wrap a phrase inside a paragraph in conditional text
+
+Goal: gate a single word or phrase — not the whole enclosing element — on a build flag.
+
+1. Select the inline run of prose you want to gate. Selections that cut through a tag are rejected so the parent topic stays well-formed; balanced markup is fine.
+2. Click the lightbulb (or press `Ctrl/Cmd+.`) and choose **Wrap selection in conditional text…** (this is the preferred action when both wrap and element-level **Add condition…** apply).
+3. The same project-wide multi-select condition picker opens. Pick one or more tags and press Enter.
+4. The toolkit replaces your selection with `<MadCap:conditionalText MadCap:conditions="Default.Internal">…</MadCap:conditionalText>` — the inline counterpart to `MadCap:conditionalBlock` — so the surrounding paragraph is untouched and the gated phrase flows inline with its neighbors.
+
+In the preview, the wrapped phrase picks up its own pill badge and a faint background tint matching the chosen tag's color, so you can see exactly what's gated without flipping back to the source.
 
 ### Validate every topic before pushing
 

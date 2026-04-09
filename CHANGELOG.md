@@ -2,6 +2,30 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [0.3.0] — 2026-04-08
+
+A bundled release covering five security-hardening commits and a batch of condition-authoring fixes and quality-of-life improvements that landed together in the "a few bugs around conditions" change. Headline items: condition pill badges are now on by default with one pill per tag tinted by the project's swatch colors, a new inline **Wrap selection in conditional text…** code action, and the editor title bar's **Live Preview** button is now an orange Flare icon that only appears when the active topic actually belongs to a Flare project.
+
+### Added — condition authoring
+
+- **`flare.wrapSelectionWithCondition` command + "Wrap selection in conditional text…" code action.** New `RefactorRewrite` action surfaced on any non-empty selection inside a Flare topic whose markup is balanced (same `hasBalancedTags` check the Extract Snippet action uses, so selections that cut through a tag are rejected). Choosing the action opens a multi-select quick pick of every project condition tag, then wraps the selection in `<MadCap:conditionalText MadCap:conditions="…">…</MadCap:conditionalText>` — the inline counterpart to `MadCap:conditionalBlock`. Lets authors gate individual words or phrases without touching the enclosing element. Marked `isPreferred` so it floats above the existing element-level **Add condition to element…** action when both apply.
+- **Editor title bar gets the orange Flare icon back.** `flare.previewHtml` now ships with `media/icon.svg` (the orange concentric-cross logo) instead of falling back to a text label. The 0.1.2 release notes flagged this as "tracked for v0.2.0" — the codicon `$(open-preview)` was reverted to text in 0.1.2 because it rendered as VS Code's generic Markdown preview glyph; this release replaces it with a real SVG that's visually distinct from any other preview button in the title bar.
+- **Editor title bar button is gated on `.flprj` ancestry.** The **Live Preview** title-bar button now only appears when the active `.htm`/`.html` file lives inside a folder that contains (or is a descendant of one that contains) a `.flprj` project file. New `flareToolkit.projectDetected` context key is updated on every active-editor change by walking up from the current document via the existing `FlareProjectResolver`. Removes the visual clutter of an always-visible button on unrelated HTML files (random README fragments, scratch files, non-Flare web projects open in the same workspace). The keyboard chord (`Cmd/Ctrl+K P`) and the Command Palette entry are unchanged — they still work everywhere — only the title-bar affordance is gated.
+
+### Changed — condition rendering
+
+- **`flareToolkit.showConditionBadges` now defaults to `true`.** Condition pills used to be opt-in; the badge styling was flat grey-on-grey at 55% opacity, which looked like preview chrome rather than a useful affordance. With the new tinted styling (below) the badges are now informative enough to be the default. Authors who want the old behavior can flip the setting back to `false`.
+- **One pill per condition tag, tinted by the `.flcts` swatch color.** `renderBadge` used to emit a single comma-joined pill (`Default.Internal, Default.Beta`); it now emits one `<span class="madcap-condition-badge">` per tag, side by side. Each pill uses a fixed white background with black text (21:1 contrast — always readable regardless of theme) and a thick 2px border in the tag's `BackgroundColor` from the matching `.flcts` entry, so authors can distinguish multiple conditions at a glance even when several are stacked on the same element. Falls back to a neutral grey border when a tag has no swatch color defined.
+- **Conditioned elements get a faint background tint matching the first tag's color.** `applyConditions` now injects a `style="background-color: rgba(r,g,b,0.15)"` declaration onto the rendered tag (merged into any existing `style` attribute) so the conditioned region is visually distinguishable in the preview, not just the pill. The tint is alpha-blended at 15% so it's visible without overpowering the topic content. New `injectStyleAttribute` and `hexToRgba` helpers in `conditionRenderer.ts` handle the merge and the `#RGB` / `#RRGGBB` parsing. The pipeline's `metadataDropHandler` now preserves the tint on `<MadCap:conditionalText>` by unwrapping it to a `<span style="…">` instead of dropping the tag entirely whenever a `style` attribute is present.
+- **Add Condition code action label lowercased and split into two actions.** `AddConditionCodeActionProvider` now returns up to two actions instead of one: the inline **Wrap selection in conditional text…** action (when there's a non-empty selection with balanced markup) and the existing **Add condition to element…** action (when the cursor sits on an opening tag). Both can appear at once when the cursor is inside a tag *and* the selection is non-empty — the wrap action is `isPreferred` so the lightbulb defaults to it. Title casing on the element-level action is normalized from `"Add Condition to Element…"` to `"Add condition to element…"` to match VS Code's house style.
+
+### Security
+
+- **`contentSanitizer` hardened against HTML5 end-tag quirks and nested obfuscation.** Closes a class of bypasses where carefully malformed end tags could survive the sanitizer's regex pass. See `3d14608` for the full details.
+- **CodeQL alerts in HTML sanitizer and URL classifier resolved.** `fda4a7b`.
+- **`serialize-javascript` pinned to `>=7.0.5` via npm `overrides`.** Eliminates a transitively pulled-in vulnerable version. `5bb9dba`.
+- **`SECURITY.md` added** describing the supported-versions matrix and the private vulnerability disclosure path. `b9a4e3c`.
+
 ## [0.2.0] — 2026-04-07
 
 ### Changed
