@@ -1,0 +1,55 @@
+name: Publish Extension
+
+# Fires automatically when you push a version tag, e.g.: git tag v1.2.3 && git push --tags
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Produces a .vsix file in the repo root, e.g. my-extension-1.2.3.vsix
+      - name: Package extension
+        run: npx vsce package
+
+      # Capture the generated filename so all later steps share it
+      - name: Get .vsix filename
+        id: vsix
+        run: echo "file=$(ls *.vsix)" >> $GITHUB_OUTPUT
+
+      # Requires secret: VSCE_PAT
+      # Create at: https://dev.azure.com → User Settings → Personal Access Tokens
+      # Scope needed: Marketplace → Manage
+      - name: Publish to VS Code Marketplace
+        run: npx vsce publish --packagePath "${{ steps.vsix.outputs.file }}"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      # Requires secret: OVSX_PAT
+      # Create at: https://open-vsx.org → User Settings → Access Tokens
+      # NOTE: This step will fail until your 'docguytraining' namespace is verified by Open VSX.
+      # Comment it out (with a leading #) until you receive confirmation from the Open VSX team.
+      - name: Publish to Open VSX Registry
+        run: npx ovsx publish "${{ steps.vsix.outputs.file }}" --pat "${{ secrets.OVSX_PAT }}"
+
+      # Creates a GitHub Release and attaches the .vsix as a downloadable asset.
+      # generate_release_notes pulls in commit messages since the last tag automatically.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vsix.outputs.file }}
+          generate_release_notes: true
