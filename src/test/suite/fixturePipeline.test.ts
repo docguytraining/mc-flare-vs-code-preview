@@ -71,5 +71,14 @@ suite("Sample Flare project pipeline", () => {
     // for here.
     assert.ok(result.html.includes("madcap-proxy-placeholder"));
     assert.ok(result.html.includes("breadcrumbsProxy"));
+
+    // Inline `[%=Var%]` form, including inside an href attribute where the
+    // <MadCap:variable> element form is not legal markup.
+    assert.ok(result.html.includes('href="https://example.com/1.0.0/docs"'));
+    assert.ok(result.html.includes("our 1.0.0 docs"));
+    // Missing inline variable falls back to a plain `[name]` marker (no span,
+    // since it might appear inside an attribute) and emits a warning.
+    assert.ok(result.html.includes("[NoSuchVariable]"));
+    assert.ok(result.warnings.some((warning) => warning.includes("NoSuchVariable")));
   });
 });
