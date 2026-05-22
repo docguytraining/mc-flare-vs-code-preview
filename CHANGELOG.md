@@ -2,6 +2,12 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [0.3.1] — 2026-05-22
+
+### Fixed
+
+- **Inline `[%=Set.Var%]` variable form now renders in the preview.** The transform pipeline already handled the `<MadCap:variable name="…"/>` element form, but Flare also supports an inline `[%=Set.Var%]` form that's the only legal way to interpolate variables inside HTML attribute values (e.g. `href="https://docs.example.com/[%=Ver%]/page"`) — XML doesn't allow elements inside attribute values, so the inline form is what authors are forced to use in URLs and similar contexts. Topics that mix both forms (common in cross-link lists) used to render the element form correctly and leak the inline form through as raw `[%=…%]` markup. `replaceMadcapVariables` now runs a second pass for the inline form against the same resolved variable map; missing variables fall back to a plain `[name]` marker (rather than the `<span class="madcap-missing-variable">` wrapper used for the element form) so the fallback stays valid markup when it lands inside an attribute value.
+
 ## [0.3.0] — 2026-04-08
 
 A bundled release covering five security-hardening commits and a batch of condition-authoring fixes and quality-of-life improvements that landed together in the "a few bugs around conditions" change. Headline items: condition pill badges are now on by default with one pill per tag tinted by the project's swatch colors, a new inline **Wrap selection in conditional text…** code action, and the editor title bar's **Live Preview** button is now an orange Flare icon that only appears when the active topic actually belongs to a Flare project.
