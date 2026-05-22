@@ -36,6 +36,11 @@ export interface TransformHandler {
 }
 
 const MADCAP_VARIABLE_REGEX = /<MadCap:variable\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/MadCap:variable>)?/gi;
+// Inline variable form `[%=Set.Name%]`. Unlike <MadCap:variable>, this one
+// is valid inside HTML attribute values (e.g. `href="…/[%=Ver%]/…"`) — Flare
+// emits it specifically for that use case, so it's heavily used in URLs and
+// other attribute contexts where the XML element form is not legal markup.
+const INLINE_VARIABLE_REGEX = /\[%=\s*([^%\s][^%]*?)\s*%\]/g;
 const CONDITIONAL_BLOCK_REGEX = /<MadCap:conditionalBlock\b([^>]*)>([\s\S]*?)<\/MadCap:conditionalBlock>/gi;
 const DROPDOWN_REGEX = /<MadCap:(dropDown|expandableArea)\b([^>]*)>([\s\S]*?)<\/MadCap:\1>/gi;
 const HOTSPOT_REGEX = /<MadCap:dropDownHotspot\b[^>]*>([\s\S]*?)<\/MadCap:dropDownHotspot>/i;
@@ -289,11 +294,22 @@ function replaceMadcapVariables(
   variables: Map<string, string>,
   warnings: string[]
 ): string {
-  return htmlContent.replace(MADCAP_VARIABLE_REGEX, (_full, name: string) => {
+  const withElementForm = htmlContent.replace(MADCAP_VARIABLE_REGEX, (_full, name: string) => {
     const value = variables.get(name);
     if (value === undefined) {
       warnings.push(`Missing value for MadCap variable '${name}'.`);
       return `<span class="madcap-missing-variable" data-name="${escapeHtml(name)}">[${escapeHtml(name)}]</span>`;
+    }
+    return escapeHtml(value);
+  });
+  // Inline form runs second. It may appear inside attribute values, so the
+  // missing-variable fallback is a plain `[name]` marker (no HTML wrapper)
+  // — a <span> would be invalid markup inside `href="…"` and friends.
+  return withElementForm.replace(INLINE_VARIABLE_REGEX, (_full, name: string) => {
+    const value = variables.get(name);
+    if (value === undefined) {
+      warnings.push(`Missing value for MadCap variable '${name}'.`);
+      return `[${escapeHtml(name)}]`;
     }
     return escapeHtml(value);
   });
