@@ -514,20 +514,20 @@ async function expandSnippetsIn(
   transformed = await replaceMatchesAsync(
     transformed,
     SNIPPET_SELF_CLOSING_REGEX,
-    async (_full: string, _tagName: string, attributes: string) => {
+    async (_full: string, tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
       const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
-      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
+      return loadSnippet(src, tagName, context, warnings, baseDir, visited, condExpr);
     }
   );
 
   transformed = await replaceMatchesAsync(
     transformed,
     SNIPPET_BLOCK_REGEX,
-    async (_full: string, _tagName: string, attributes: string) => {
+    async (_full: string, tagName: string, attributes: string) => {
       const src = readAttribute(attributes, ["src", "source"]);
       const condExpr = readAttribute(attributes, ["MadCap:conditionTagExpression", "conditionTagExpression"]);
-      return loadSnippet(src, context, warnings, baseDir, visited, condExpr);
+      return loadSnippet(src, tagName, context, warnings, baseDir, visited, condExpr);
     }
   );
 
@@ -588,6 +588,7 @@ const MAX_SNIPPET_DEPTH = 32;
 
 async function loadSnippet(
   snippetSource: string | undefined,
+  snippetTag: string,
   context: TransformContext,
   warnings: string[],
   baseDir: string | undefined,
@@ -665,7 +666,50 @@ async function loadSnippet(
     processed = result.html;
   }
 
+  // <MadCap:snippetText> is the inline snippet form: Flare splices the
+  // snippet's text into the surrounding paragraph rather than introducing a
+  // block of its own. Standalone `.flsnp` files default to wrapping their
+  // (often single-paragraph) content in a `<p>`, so emitting the loaded body
+  // verbatim would nest a block-level `<p>` inside the parent paragraph — the
+  // preview then breaks the line before and after the snippet. Flatten the
+  // body to its inline text so it flows with the surrounding sentence, matching
+  // Flare's inline semantics. <MadCap:snippet> / <MadCap:snippetBlock> keep
+  // the block structure and are returned untouched.
+  if (snippetTag.toLowerCase() === "snippettext") {
+    return flattenInlineSnippet(processed);
+  }
+
   return processed;
+}
+
+/**
+ * Flattens a loaded snippet body for inline (`<MadCap:snippetText>`)
+ * inclusion.
+ *
+ *   1. Strips the XML declaration and any `<html>` / `<body>` document
+ *      wrappers a standalone `.flsnp` file carries.
+ *   2. Unwraps a single top-level `<p>…</p>` so its inner content flows
+ *      inline. When the body holds more than one top-level paragraph we leave
+ *      it as-is — there's no unambiguous single-line form for that, and it
+ *      isn't the single-paragraph default Flare auto-generates and that the
+ *      inline form is meant to smooth over.
+ */
+function flattenInlineSnippet(html: string): string {
+  let content = html.replace(/<\?xml\b[\s\S]*?\?>/gi, "");
+  const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(content);
+  if (bodyMatch) {
+    content = bodyMatch[1];
+  } else {
+    content = content.replace(/<\/?html\b[^>]*>/gi, "");
+  }
+  content = content.trim();
+
+  const singleParagraph = /^<p\b[^>]*>([\s\S]*)<\/p>$/i.exec(content);
+  if (singleParagraph && !/<p\b/i.test(singleParagraph[1])) {
+    return singleParagraph[1].trim();
+  }
+
+  return content;
 }
 
 /**

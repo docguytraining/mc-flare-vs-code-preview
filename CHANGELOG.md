@@ -2,6 +2,12 @@
 
 All notable changes to the MadCap Flare Preview extension are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **`<MadCap:snippetText>` now flows inline instead of forcing a line break.** Single-paragraph `.flsnp` files default to a `<p>` wrapper in Flare, and the block snippet forms (`<MadCap:snippet>` / `<MadCap:snippetBlock>`) keep it. But `<MadCap:snippetText>` is the *inline* form — Flare splices its text into the surrounding paragraph — so emitting the wrapper verbatim nested a block-level `<p>` inside the parent `<p>`, breaking the line before and after the snippet in the preview. The snippet handler now knows which tag it's expanding: for `snippetText` it strips the XML declaration and any `<html>`/`<body>` document wrappers and unwraps a single top-level `<p>…</p>` so the content flows inline (variables and nested snippets inside the body are still resolved first). Multi-paragraph bodies — which have no unambiguous inline form — keep their block structure, and the block snippet forms are unchanged.
+
 ## [0.3.1] — 2026-05-22
 
 ### Fixed

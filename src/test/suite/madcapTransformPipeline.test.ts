@@ -108,6 +108,132 @@ suite("MadCap Transform Pipeline", () => {
     );
   });
 
+  test("flattens the outer <p> of a snippetText so it flows inline", async () => {
+    // A single-paragraph .flsnp defaults to a `<p>` wrapper in Flare. When
+    // referenced inline via <MadCap:snippetText>, that wrapper must be
+    // stripped so the content flows within the parent paragraph instead of
+    // rendering a block-level `<p>` inside a `<p>`.
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-snippettext-"));
+    const snippetPath = path.join(tempDir, "ButtonName.flsnp");
+    await fs.writeFile(
+      snippetPath,
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<html xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">',
+        "    <body>",
+        "        <p><b>Submit Order</b></p>",
+        "    </body>",
+        "</html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const html =
+      '<p>To finalize your purchase, click <MadCap:snippetText src="ButtonName.flsnp" /> on the screen.</p>';
+    const result = await transformMadcapContent(html, {
+      variables: new Map<string, string>(),
+      projectContext: undefined,
+      currentDocument: vscode.Uri.file(path.join(tempDir, "topic.htm"))
+    });
+
+    assert.ok(
+      result.html.includes("click <b>Submit Order</b> on the screen."),
+      `expected inline flow, got: ${result.html}`
+    );
+    // The outer <p>, the document wrappers, and the XML declaration must not
+    // survive into the inline context.
+    assert.ok(!result.html.includes("<p><b>Submit Order</b></p>"));
+    assert.ok(!result.html.includes("<body"));
+    assert.ok(!result.html.includes("<?xml"));
+  });
+
+  test("preserves the <p> block structure for snippetBlock", async () => {
+    // The block form is the counterpart to snippetText: its `<p>` wrapper is
+    // structural and must be kept.
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-snippetblock-"));
+    const snippetPath = path.join(tempDir, "ButtonName.flsnp");
+    await fs.writeFile(
+      snippetPath,
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<html><body>",
+        "  <p><b>Submit Order</b></p>",
+        "</body></html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const html = '<MadCap:snippetBlock src="ButtonName.flsnp" />';
+    const result = await transformMadcapContent(html, {
+      variables: new Map<string, string>(),
+      projectContext: undefined,
+      currentDocument: vscode.Uri.file(path.join(tempDir, "topic.htm"))
+    });
+
+    assert.ok(
+      result.html.includes("<p><b>Submit Order</b></p>"),
+      `expected the block <p> to survive, got: ${result.html}`
+    );
+  });
+
+  test("keeps a multi-paragraph snippetText body untouched", async () => {
+    // There's no unambiguous inline form for multiple block paragraphs, so we
+    // only unwrap the single-paragraph default and leave the rest alone.
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-snippettext-multi-"));
+    const snippetPath = path.join(tempDir, "Two.flsnp");
+    await fs.writeFile(
+      snippetPath,
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<html><body>",
+        "  <p>First.</p>",
+        "  <p>Second.</p>",
+        "</body></html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const html = '<p>Intro <MadCap:snippetText src="Two.flsnp" /></p>';
+    const result = await transformMadcapContent(html, {
+      variables: new Map<string, string>(),
+      projectContext: undefined,
+      currentDocument: vscode.Uri.file(path.join(tempDir, "topic.htm"))
+    });
+
+    assert.ok(result.html.includes("<p>First.</p>"));
+    assert.ok(result.html.includes("<p>Second.</p>"));
+    // Document wrappers are still stripped even when the paragraphs are kept.
+    assert.ok(!result.html.includes("<body"));
+  });
+
+  test("resolves variables inside an inline snippetText body before flattening", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-snippettext-var-"));
+    const snippetPath = path.join(tempDir, "Var.flsnp");
+    await fs.writeFile(
+      snippetPath,
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<html><body>",
+        '  <p><MadCap:variable name="ProductName" /></p>',
+        "</body></html>"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const html = '<p>Welcome to <MadCap:snippetText src="Var.flsnp" />.</p>';
+    const result = await transformMadcapContent(html, {
+      variables: new Map<string, string>([["ProductName", "Flare Preview"]]),
+      projectContext: undefined,
+      currentDocument: vscode.Uri.file(path.join(tempDir, "topic.htm"))
+    });
+
+    assert.ok(
+      result.html.includes("Welcome to Flare Preview."),
+      `expected resolved variable inline, got: ${result.html}`
+    );
+    assert.ok(!result.html.includes("<p>Flare Preview</p>"));
+  });
+
   test("loads snippets and marks unsupported tags", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "flare-preview-test-"));
     const snippetPath = path.join(tempDir, "snippet.htm");
